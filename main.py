@@ -214,37 +214,16 @@ class X_Grid(QMainWindow):
         self.view.addTextRequested.connect(self.add_text_annotation)
         self.view.removeAnnotationRequested.connect(self.remove_text_annotation)
         self.view.removeAllAnnotationsRequested.connect(self.remove_all_text_annotations)
-        self.view.exportDebugInfoRequested.connect(self.export_debug_info)
+        # --- ▼▼▼ デバッグ機能の接続を削除 ▼▼▼ ---
+        # self.view.exportDebugInfoRequested.connect(self.export_debug_info)
+        # --- ▲▲▲ ---
         
         self._update_ui_for_state(AppState.IDLE)
 
-    def export_debug_info(self):
-        file_path, _ = QFileDialog.getSaveFileName(self, "デバッグ情報を保存", "debug_geometries.txt", "Text Files (*.txt)")
-        if not file_path:
-            return
-
-        try:
-            with open(file_path, 'w') as f:
-                f.write("--- Calculation Target Geometry (WKT) ---\n")
-                calc_geom = self.project._get_combined_calculable_geom()
-                if calc_geom:
-                    f.write(calc_geom.wkt)
-                else:
-                    f.write("None")
-                f.write("\n\n")
-
-                f.write("--- Split Lines (WKT) ---\
-")
-                if self.project.split_lines:
-                    from shapely.ops import unary_union
-                    splitter = unary_union(self.project.split_lines)
-                    f.write(splitter.wkt)
-                else:
-                    f.write("None")
-                f.write("\n")
-            QMessageBox.information(self, "成功", f"デバッグ情報を保存しました:\n{file_path}")
-        except Exception as e:
-            QMessageBox.critical(self, "エラー", f"デバッグ情報の保存中にエラーが発生しました: {e}")
+    # --- ▼▼▼ デバッグ機能のメソッドを削除 ▼▼▼ ---
+    # def export_debug_info(self):
+    #     ... (method content removed)
+    # --- ▲▲▲ ---
 
     def _set_guide_text(self, text):
         rich_text = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', text)
@@ -327,6 +306,7 @@ class X_Grid(QMainWindow):
         area_name = "計算区域" if area_index is None else self.project.sub_area_data[area_index]['name']
         
         msg_box = QMessageBox(self)
+        msg_box.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.WindowTitleHint | Qt.WindowType.CustomizeWindowHint)
         msg_box.setStyleSheet("QLabel{min-width: 400px; font-size: 11pt;}")
         msg_box.setWindowTitle("計算方法の選択")
         
@@ -959,10 +939,7 @@ class X_Grid(QMainWindow):
         temp_project.title_is_displayed = self.project.title_is_displayed
         temp_project.display_mode = display_mode
         
-        # --- ▼▼▼ 修正箇所 ▼▼▼ ---
-        # ポインター描画に必要な情報を現在のプロジェクトからコピーする
         temp_project.default_landing_cell = self.project.default_landing_cell
-        # --- ▲▲▲ 修正箇所ここまで ▲▲▲
         
         is_split_summary_page = self.project.is_split_mode and display_mode == 'summary'
         if is_split_summary_page:

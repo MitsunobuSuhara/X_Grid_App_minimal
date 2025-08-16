@@ -1,3 +1,5 @@
+# --- START OF FILE ui_components.py ---
+
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QCheckBox, QDialogButtonBox, QListWidget, QGraphicsView, QMenu
 )
@@ -67,8 +69,8 @@ class MyGraphicsView(QGraphicsView):
     addTextRequested = pyqtSignal(QPointF)
     removeAnnotationRequested = pyqtSignal(object)
     removeAllAnnotationsRequested = pyqtSignal()
-    # --- ▼▼▼ デバッグ用シグナルを追加 ▼▼▼ ---
-    exportDebugInfoRequested = pyqtSignal()
+    # --- ▼▼▼ デバッグ用シグナルを削除 ▼▼▼ ---
+    # exportDebugInfoRequested = pyqtSignal()
     # --- ▲▲▲ ---
 
     def __init__(self, scene, parent=None):
@@ -108,7 +110,6 @@ class MyGraphicsView(QGraphicsView):
         menu = QMenu(self)
         item_at_pos = self.itemAt(pos)
         
-        # renderer.py から DraggableLabelItem をインポート
         from renderer import DraggableLabelItem
         if isinstance(item_at_pos, DraggableLabelItem) and item_at_pos.is_annotation:
             delete_action = menu.addAction("この注釈を削除")
@@ -128,9 +129,9 @@ class MyGraphicsView(QGraphicsView):
             else:
                 delete_all_action = None
             
-            # --- ▼▼▼ デバッグメニューを追加 ▼▼▼ ---
-            menu.addSeparator()
-            debug_action = menu.addAction("デバッグ情報をエクスポート")
+            # --- ▼▼▼ デバッグメニューを削除 ▼▼▼ ---
+            # menu.addSeparator()
+            # debug_action = menu.addAction("デバッグ情報をエクスポート")
             # --- ▲▲▲ ---
 
             action = menu.exec(self.mapToGlobal(pos))
@@ -140,9 +141,9 @@ class MyGraphicsView(QGraphicsView):
                 self.addTextRequested.emit(scene_pos)
             elif action == delete_all_action:
                 self.removeAllAnnotationsRequested.emit()
-            # --- ▼▼▼ デバッグアクションの処理を追加 ▼▼▼ ---
-            elif action == debug_action:
-                self.exportDebugInfoRequested.emit()
+            # --- ▼▼▼ デバッグアクションの処理を削除 ▼▼▼ ---
+            # elif action == debug_action:
+            #     self.exportDebugInfoRequested.emit()
             # --- ▲▲▲ ---
     
     def mousePressEvent(self, event):
