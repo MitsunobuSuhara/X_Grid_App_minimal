@@ -1,3 +1,5 @@
+# --- START OF FILE main.py ---
+
 import sys
 import os
 import fiona
@@ -810,24 +812,17 @@ class X_Grid(QMainWindow):
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         self.renderer.pointer_items_visible(False)
         try:
-            # --- ▼▼▼ 修正箇所 ▼▼▼ ---
-            # ページサイズと向きを決定するロジックを修正
-            # 分割モードの総括ページ（テキストのみ）の場合だけA4縦に固定する
             is_split_summary = self.project.is_split_mode and self.project.display_mode == 'summary'
             if is_split_summary:
                 page_size_id = QPageSize.PageSizeId.A4
                 orientation = QPageLayout.Orientation.Portrait
             else:
-                # 区域全体モード、または分割モードの個別区域図の場合は、現在のプロジェクト設定に従う
                 is_a3_mode = self.project.page_orientation == QPageLayout.Orientation.Landscape and self.project.grid_cols > self.project.grid_cols_a4
                 page_size_id = QPageSize.PageSizeId.A3 if is_a3_mode else QPageSize.PageSizeId.A4
                 orientation = self.project.page_orientation
-            # --- ▲▲▲ 修正箇所ここまで ▲▲▲ ---
 
-            # PDFデータをメモリ上に生成
             pdf_data = self._render_page_to_memory(self.project.display_mode, page_size_id, orientation)
             
-            # ファイルに書き込み
             with open(file_path, "wb") as f:
                 f.write(pdf_data)
 
@@ -863,16 +858,13 @@ class X_Grid(QMainWindow):
         merger = PdfWriter()
         
         try:
-            # 地図ページのページサイズと向きを決定
             is_a3_mode = self.project.page_orientation == QPageLayout.Orientation.Landscape and self.project.grid_cols > self.project.grid_cols_a4
             map_page_size_id = QPageSize.PageSizeId.A3 if is_a3_mode else QPageSize.PageSizeId.A4
             map_page_orientation = self.project.page_orientation
 
-            # 総括ページ (A4縦) を生成
             summary_pdf_data = self._render_page_to_memory('summary', QPageSize.PageSizeId.A4, QPageLayout.Orientation.Portrait)
             merger.append(io.BytesIO(summary_pdf_data))
 
-            # 各エリアの地図ページを生成
             for area_data in self.project.sub_area_data:
                 display_mode = f"area_{area_data['id']}"
                 area_pdf_data = self._render_page_to_memory(display_mode, map_page_size_id, map_page_orientation)
@@ -913,13 +905,11 @@ class X_Grid(QMainWindow):
         self.renderer.pointer_items_visible(False)
         
         try:
-            # 総括ページ (A4縦)
             summary_filename = os.path.join(folder_path, f"X-Grid_{subtitle}_総括.pdf")
             summary_pdf_data = self._render_page_to_memory('summary', QPageSize.PageSizeId.A4, QPageLayout.Orientation.Portrait)
             with open(summary_filename, "wb") as f:
                 f.write(summary_pdf_data)
 
-            # 地図ページ
             is_a3_mode = self.project.page_orientation == QPageLayout.Orientation.Landscape and self.project.grid_cols > self.project.grid_cols_a4
             map_page_size_id = QPageSize.PageSizeId.A3 if is_a3_mode else QPageSize.PageSizeId.A4
             map_page_orientation = self.project.page_orientation
@@ -969,18 +959,13 @@ class X_Grid(QMainWindow):
         temp_project.title_is_displayed = self.project.title_is_displayed
         temp_project.display_mode = display_mode
         
-        # --- ▼▼▼ 修正箇所 ▼▼▼ ---
-        # 描画用のグリッド寸法を、現在のプロジェクト設定から正しく引き継ぐように修正
         is_split_summary_page = self.project.is_split_mode and display_mode == 'summary'
         if is_split_summary_page:
-            # 分割モードの総括ページ（テキストのみ）の場合だけA4用のグリッド寸法を使う
             temp_project.grid_rows = temp_project.grid_rows_a4
             temp_project.grid_cols = temp_project.grid_cols_a4
         else:
-            # 区域全体モード、または分割モードの個別区域図の場合は、メインのプロジェクト設定をそのまま使う
             temp_project.grid_rows = self.project.grid_rows
             temp_project.grid_cols = self.project.grid_cols
-        # --- ▲▲▲ 修正箇所ここまで ▲▲▲ ---
         
         temp_project.grid_rows_a4 = self.project.grid_rows_a4
         temp_project.grid_cols_a4 = self.project.grid_cols_a4
@@ -998,18 +983,43 @@ class X_Grid(QMainWindow):
         if not source_rect.isValid():
             raise Exception(f"ページ '{display_mode}' のコンテンツ描画範囲が無効です。")
         
-        # --- ▼▼▼ 修正箇所 ▼▼▼ ---
-        # QPdfWriterからではなく、設定したQPageLayoutからページ寸法を取得する
-        page_rect_dots = page_layout.paintRectPixels(pdf_writer.resolution())
-        target_rect = QRectF(page_rect_dots)
-        
         painter = QPainter(pdf_writer)
         try:
-            temp_scene.render(painter, target_rect, source_rect, Qt.AspectRatioMode.KeepAspectRatio)
+            # 1. 単位換算の定義
+            scene_cell_size = temp_project.cell_size_on_screen
+            physical_cell_size_mm = 5.0
+            scene_units_per_mm = scene_cell_size / physical_cell_size_mm
+
+            resolution = pdf_writer.resolution()
+            mm_per_inch = 25.4
+            dots_per_mm = resolution / mm_per_inch
+
+            # 2. 描画内容の物理的なサイズを計算
+            target_width_mm = source_rect.width() / scene_units_per_mm
+            target_height_mm = source_rect.height() / scene_units_per_mm
+
+            # 3. 用紙サイズとマージンを計算
+            # page_sizeからではなく、ページの向きが反映されたpage_layoutから寸法を取得する
+            page_rect_mm = page_layout.fullRect(QPageLayout.Unit.Millimeter)
+            
+            # コンテンツを用紙の中央に配置するためのマージン (mm)
+            margin_x_mm = (page_rect_mm.width() - target_width_mm) / 2.0
+            margin_y_mm = (page_rect_mm.height() - target_height_mm) / 2.0
+
+            # 4. 最終的な描画領域をPDFの描画単位(dot)で定義
+            target_rect_in_dots = QRectF(
+                margin_x_mm * dots_per_mm,
+                margin_y_mm * dots_per_mm,
+                target_width_mm * dots_per_mm,
+                target_height_mm * dots_per_mm
+            )
+
+            # 5. 固定スケールでレンダリング
+            temp_scene.render(painter, target_rect_in_dots, source_rect)
+
         finally:
             painter.end()
-        # --- ▲▲▲ 修正箇所ここまで ▲▲▲ ---
-        
+
         pdf_data = buffer.data()
         buffer.close()
         return bytes(pdf_data)
