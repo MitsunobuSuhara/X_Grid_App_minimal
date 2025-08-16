@@ -2,9 +2,7 @@
 
 import uuid
 from PyQt6.QtGui import QPageLayout
-# --- ▼▼▼ LineString, MultiPolygon をインポートリストに追加 ▼▼▼ ---
 from shapely.geometry import shape, Polygon, MultiPolygon, LineString
-# --- ▼▼▼ split をインポートリストから削除（使わないため） ▼▼▼ ---
 from shapely.ops import unary_union, polygonize
 from shapely.affinity import rotate, scale
 
@@ -16,7 +14,9 @@ class Project:
         self.layers = []
         self.k_value = 25.0
         self.cell_size_on_screen = 25
-        self.grid_rows_a4, self.grid_cols_a4 = 45, 30
+        # --- ▼▼▼ 修正箇所 ▼▼▼ ---
+        self.grid_rows_a4, self.grid_cols_a4 = 45, 31 # 横セル数を30から31に変更
+        # --- ▲▲▲ 修正箇所ここまで ▲▲▲ ---
         self.grid_rows_a3, self.grid_cols_a3 = 45, 73
         self.grid_rows, self.grid_cols = self.grid_rows_a4, self.grid_cols_a4
         self.page_orientation = QPageLayout.Orientation.Portrait

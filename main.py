@@ -810,14 +810,19 @@ class X_Grid(QMainWindow):
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         self.renderer.pointer_items_visible(False)
         try:
-            # ページサイズと向きを決定
-            if self.project.display_mode == 'summary':
+            # --- ▼▼▼ 修正箇所 ▼▼▼ ---
+            # ページサイズと向きを決定するロジックを修正
+            # 分割モードの総括ページ（テキストのみ）の場合だけA4縦に固定する
+            is_split_summary = self.project.is_split_mode and self.project.display_mode == 'summary'
+            if is_split_summary:
                 page_size_id = QPageSize.PageSizeId.A4
                 orientation = QPageLayout.Orientation.Portrait
             else:
+                # 区域全体モード、または分割モードの個別区域図の場合は、現在のプロジェクト設定に従う
                 is_a3_mode = self.project.page_orientation == QPageLayout.Orientation.Landscape and self.project.grid_cols > self.project.grid_cols_a4
                 page_size_id = QPageSize.PageSizeId.A3 if is_a3_mode else QPageSize.PageSizeId.A4
                 orientation = self.project.page_orientation
+            # --- ▲▲▲ 修正箇所ここまで ▲▲▲ ---
 
             # PDFデータをメモリ上に生成
             pdf_data = self._render_page_to_memory(self.project.display_mode, page_size_id, orientation)
@@ -964,12 +969,18 @@ class X_Grid(QMainWindow):
         temp_project.title_is_displayed = self.project.title_is_displayed
         temp_project.display_mode = display_mode
         
-        if display_mode == 'summary':
+        # --- ▼▼▼ 修正箇所 ▼▼▼ ---
+        # 描画用のグリッド寸法を、現在のプロジェクト設定から正しく引き継ぐように修正
+        is_split_summary_page = self.project.is_split_mode and display_mode == 'summary'
+        if is_split_summary_page:
+            # 分割モードの総括ページ（テキストのみ）の場合だけA4用のグリッド寸法を使う
             temp_project.grid_rows = temp_project.grid_rows_a4
             temp_project.grid_cols = temp_project.grid_cols_a4
         else:
+            # 区域全体モード、または分割モードの個別区域図の場合は、メインのプロジェクト設定をそのまま使う
             temp_project.grid_rows = self.project.grid_rows
             temp_project.grid_cols = self.project.grid_cols
+        # --- ▲▲▲ 修正箇所ここまで ▲▲▲ ---
         
         temp_project.grid_rows_a4 = self.project.grid_rows_a4
         temp_project.grid_cols_a4 = self.project.grid_cols_a4
