@@ -333,22 +333,28 @@ class X_Grid(QMainWindow):
         msg_box.setText(f"<div style='font-size: 14pt;'><b>【{area_name}】</b></div><br>土場の位置を選択してください。")
         msg_box.setTextFormat(Qt.TextFormat.RichText)
 
-        internal_button = msg_box.addButton("集材区域内に土場がある", QMessageBox.ButtonRole.YesRole)
-        external_button = msg_box.addButton("集材区域外に土場がある", QMessageBox.ButtonRole.NoRole)
+        internal_button = msg_box.addButton("集材区域内に土場がある", QMessageBox.ButtonRole.ActionRole)
+        external_button = msg_box.addButton("集材区域外に土場がある", QMessageBox.ButtonRole.ActionRole)
+        cancel_button = msg_box.addButton("キャンセル", QMessageBox.ButtonRole.RejectRole)
         
         guide_global_pos = self.guide_content_label.mapToGlobal(QPoint(0, 0))
         msg_box.move(guide_global_pos.x() + self.guide_content_label.width() + 20, guide_global_pos.y())
+        
         msg_box.exec()
         
-        if msg_box.clickedButton() is None:
-             if self.project.is_split_mode:
-                 self._update_ui_for_state(AppState.CONFIGURING_SUB_AREAS)
-             else:
-                 self._evaluate_and_set_readiness_state()
-             return
+        clicked_button = msg_box.clickedButton()
 
-        is_internal = msg_box.clickedButton() == internal_button
-        mode = "internal" if is_internal else "external"
+        mode = None
+        if clicked_button == internal_button:
+            mode = "internal"
+        elif clicked_button == external_button:
+            mode = "external"
+        
+        if mode is None:
+            self.clear_all_calculation_settings()
+            return
+
+        is_internal = (mode == "internal")
         guide_text_base = "『土場』" if is_internal else "『区域の入口』"
         
         guide_text = f"**【{area_name}】**の**{guide_text_base}**の位置を\n**左クリック**で指定してください。"
@@ -810,7 +816,6 @@ class X_Grid(QMainWindow):
             return
 
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
-        self.renderer.pointer_items_visible(False)
         try:
             is_split_summary = self.project.is_split_mode and self.project.display_mode == 'summary'
             if is_split_summary:
@@ -842,7 +847,6 @@ class X_Grid(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "エラー", f"エクスポート中にエラーが発生しました: {e}")
         finally:
-            self.renderer.pointer_items_visible(True)
             QApplication.restoreOverrideCursor()
 
     def _export_multi_page_pdf(self):
@@ -853,7 +857,6 @@ class X_Grid(QMainWindow):
             return
 
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
-        self.renderer.pointer_items_visible(False)
         
         merger = PdfWriter()
         
@@ -892,7 +895,6 @@ class X_Grid(QMainWindow):
             QMessageBox.critical(self, "エラー", f"一括エクスポート中にエラーが発生しました: {e}")
         finally:
             merger.close()
-            self.renderer.pointer_items_visible(True)
             QApplication.restoreOverrideCursor()
 
     def _export_multiple_individual_pdfs(self):
@@ -902,7 +904,6 @@ class X_Grid(QMainWindow):
             return
 
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
-        self.renderer.pointer_items_visible(False)
         
         try:
             summary_filename = os.path.join(folder_path, f"X-Grid_{subtitle}_総括.pdf")
@@ -928,7 +929,6 @@ class X_Grid(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "エラー", f"個別ファイルのエクスポート中にエラーが発生しました: {e}")
         finally:
-            self.renderer.pointer_items_visible(True)
             QApplication.restoreOverrideCursor()
 
     def _render_page_to_memory(self, display_mode, page_size_id, orientation):
@@ -959,6 +959,11 @@ class X_Grid(QMainWindow):
         temp_project.title_is_displayed = self.project.title_is_displayed
         temp_project.display_mode = display_mode
         
+        # --- ▼▼▼ 修正箇所 ▼▼▼ ---
+        # ポインター描画に必要な情報を現在のプロジェクトからコピーする
+        temp_project.default_landing_cell = self.project.default_landing_cell
+        # --- ▲▲▲ 修正箇所ここまで ▲▲▲
+        
         is_split_summary_page = self.project.is_split_mode and display_mode == 'summary'
         if is_split_summary_page:
             temp_project.grid_rows = temp_project.grid_rows_a4
@@ -977,7 +982,7 @@ class X_Grid(QMainWindow):
         temp_calculator = Calculator(temp_project, temp_renderer)
         temp_project.calculator = temp_calculator
         
-        temp_renderer.full_redraw(hide_pointers=True, for_pdf=True)
+        temp_renderer.full_redraw(hide_pointers=False, for_pdf=True)
         
         source_rect = temp_renderer.get_full_content_rect()
         if not source_rect.isValid():

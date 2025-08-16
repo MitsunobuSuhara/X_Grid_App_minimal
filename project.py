@@ -14,9 +14,7 @@ class Project:
         self.layers = []
         self.k_value = 25.0
         self.cell_size_on_screen = 25
-        # --- ▼▼▼ 修正箇所 ▼▼▼ ---
         self.grid_rows_a4, self.grid_cols_a4 = 45, 31 # 横セル数を30から31に変更
-        # --- ▲▲▲ 修正箇所ここまで ▲▲▲ ---
         self.grid_rows_a3, self.grid_cols_a3 = 45, 73
         self.grid_rows, self.grid_cols = self.grid_rows_a4, self.grid_cols_a4
         self.page_orientation = QPageLayout.Orientation.Portrait
@@ -204,23 +202,35 @@ class Project:
         master_geom = self._get_combined_all_layers_geom()
         info_message, layout_found = "", False
         final_grid_rows, final_grid_cols, final_page_orientation, final_map_rotation = self.grid_rows, self.grid_cols, self.page_orientation, self.map_rotation
+        
         if master_geom and not master_geom.is_empty:
             a4_width_m, a4_height_m = self.grid_cols_a4 * self.k_value, self.grid_rows_a4 * self.k_value
             a3_width_m, a3_height_m = self.grid_cols_a3 * self.k_value, self.grid_rows_a3 * self.k_value
-            configs = [
-                (self.grid_rows_a4, self.grid_cols_a4, QPageLayout.Orientation.Portrait, a4_width_m, a4_height_m, "A4縦"),
-                (self.grid_rows_a3, self.grid_cols_a3, QPageLayout.Orientation.Landscape, a3_width_m, a3_height_m, "A3横")
-            ]
-            for gr, gc, po, w, h, name in configs:
-                optimal_angle = self._find_optimal_rotation(master_geom, w, h)
-                if optimal_angle is not None:
-                    final_grid_rows, final_grid_cols, final_page_orientation, final_map_rotation = gr, gc, po, optimal_angle
-                    info_message = f"{name}に収めるため、{optimal_angle}°回転しました。" if optimal_angle != 0 else f"{name}に収まります。"
+            
+            # --- ▼▼▼ 修正箇所 ▼▼▼ ---
+            # まずA4に収まるかチェック
+            optimal_angle_a4 = self._find_optimal_rotation(master_geom, a4_width_m, a4_height_m)
+            
+            if optimal_angle_a4 is not None:
+                # A4に収まる場合
+                final_grid_rows, final_grid_cols, final_page_orientation, final_map_rotation = self.grid_rows_a4, self.grid_cols_a4, QPageLayout.Orientation.Portrait, optimal_angle_a4
+                info_message = f"A4縦に収めるため、{optimal_angle_a4}°回転しました。" if optimal_angle_a4 != 0 else "A4縦に収まります。"
+                layout_found = True
+            else:
+                # A4に収まらない場合、A3を試す
+                optimal_angle_a3 = self._find_optimal_rotation(master_geom, a3_width_m, a3_height_m)
+                if optimal_angle_a3 is not None:
+                    # A3に収まる場合
+                    final_grid_rows, final_grid_cols, final_page_orientation, final_map_rotation = self.grid_rows_a3, self.grid_cols_a3, QPageLayout.Orientation.Landscape, optimal_angle_a3
+                    info_message = "A4サイズに収まらないため、A3モードに切り替えます。" # 指定されたメッセージに変更
                     layout_found = True
-                    break
-            if not layout_found:
-                 final_grid_rows, final_grid_cols, final_page_orientation, final_map_rotation = self.grid_rows_a3, self.grid_cols_a3, QPageLayout.Orientation.Landscape, 0
-                 info_message = "A3モードでも最適な回転が見つかりませんでした。データの一部が切れて表示される可能性があります。"
+                else:
+                    # A3にも収まらない場合（フォールバック）
+                    final_grid_rows, final_grid_cols, final_page_orientation, final_map_rotation = self.grid_rows_a3, self.grid_cols_a3, QPageLayout.Orientation.Landscape, 0
+                    info_message = "A3モードでも最適な回転が見つかりませんでした。データの一部が切れて表示される可能性があります。"
+                    layout_found = False
+            # --- ▲▲▲ 修正箇所ここまで ▲▲▲
+
         layout_changed = (self.grid_rows != final_grid_rows or self.grid_cols != final_grid_cols or self.map_rotation != final_map_rotation or self.page_orientation != final_page_orientation)
         self.grid_rows, self.grid_cols, self.page_orientation, self.map_rotation = final_grid_rows, final_grid_cols, final_page_orientation, final_map_rotation
         print(f"DEBUG: determine_layout - final_grid_rows: {final_grid_rows}, final_grid_cols: {final_grid_cols}")

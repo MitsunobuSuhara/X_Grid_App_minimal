@@ -1,3 +1,5 @@
+# --- START OF FILE renderer.py ---
+
 import math
 from PyQt6.QtCore import Qt, QRectF, QPointF, pyqtSignal
 from PyQt6.QtGui import (
@@ -170,10 +172,7 @@ class MapRenderer:
         return QRectF(self.grid_offset_x, self.grid_offset_y, width, height)
 
     def get_full_content_rect(self):
-        # --- ▼▼▼ 修正点 ▼▼▼ ---
-        # 複雑なマージン計算を廃止し、シーン全体のバウンディングボックスを基準にするように変更
         if not self.scene or not self.scene.items():
-            # フォールバック: シーンにアイテムがない場合
             grid_width = self.project.grid_cols * self.project.cell_size_on_screen
             grid_height = self.project.grid_rows * self.project.cell_size_on_screen
             min_x = self.grid_offset_x - 80
@@ -182,18 +181,14 @@ class MapRenderer:
             height = grid_height + 300
             return QRectF(min_x, min_y, width, height)
 
-        # シーン内の全ての描画アイテムを囲む矩形を取得
         content_rect = self.scene.itemsBoundingRect()
         
-        # グリッド領域もバウンディングボックスに含める
         grid_rect = self.get_grid_rect()
         if grid_rect.isValid():
             content_rect = content_rect.united(grid_rect)
         
-        # 最終的な描画範囲として、若干のマージンを追加して返す
         return content_rect.adjusted(-20, -20, 20, 20)
-        # --- ▲▲▲ 修正ここまで ▲▲▲ ---
-
+        
     def full_redraw(self, hide_pointers=False, hide_calc_results=False, for_pdf=False):
         self.for_pdf = for_pdf
         self.clear_all_graphics_items()
@@ -294,18 +289,9 @@ class MapRenderer:
             pen.setColor(style['line_color'])
             pen.setStyle(style['pen_style'])
 
-            # --- ▼▼▼ 修正点 ▼▼▼ ---
-            # 画面表示とPDF出力でペン幅の計算ロジックを統一
-            # style['line_width'] は mm 単位。
-            # 1セルが物理的に5mm、シーン座標で25単位(cell_size_on_screen)であるため、
-            # 1mm は (cell_size_on_screen / 5.0) = 5.0 シーン単位となる。
-            # この変換係数を使ってシーン単位のペン幅を計算する。
             pen_width_in_scene_units = style['line_width'] * 5.0
             pen.setWidthF(pen_width_in_scene_units)
-            # Painterのスケーリングが適用されるように非Cosmeticに設定
-            # これにより、ズームしてもPDFに出力しても、相対的な線の太さが保たれる
             pen.setCosmetic(False)
-            # --- ▲▲▲ 修正ここまで ▲▲▲ ---
 
             brush = QBrush(style['fill_color'])
             
@@ -528,14 +514,28 @@ class MapRenderer:
 
     def draw_landing_pointer(self, landing_cell, area_index, is_default_single_mode=False):
         row, col = landing_cell
-        center_x, center_y, point_size = self.grid_offset_x + col * self.project.cell_size_on_screen + self.project.cell_size_on_screen / 2, self.grid_offset_y + row * self.project.cell_size_on_screen + self.project.cell_size_on_screen / 2, self.project.cell_size_on_screen * 0.5
+        
+        # --- ▼▼▼ 修正箇所 ▼▼▼ ---
+        # PDF出力時と画面表示時でポインターのサイズを変更する
+        if self.for_pdf:
+            # PDF出力時は、計算対象セルのドットと同じサイズにする
+            point_size = self.project.cell_size_on_screen * 0.15
+        else:
+            # 画面表示時は、視認性の良い大きいサイズにする
+            point_size = self.project.cell_size_on_screen * 0.5
+        # --- ▲▲▲ 修正箇所ここまで ▲▲▲
+
+        center_x = self.grid_offset_x + col * self.project.cell_size_on_screen + self.project.cell_size_on_screen / 2
+        center_y = self.grid_offset_y + row * self.project.cell_size_on_screen + self.project.cell_size_on_screen / 2
+        
         color = QColor("red")
         if not is_default_single_mode and area_index is not None:
             colors = [QColor("blue"), QColor("green"), QColor("purple"), QColor(255, 165, 0), QColor(139, 69, 19)]
             color = colors[area_index % len(colors)]
+            
         pointer_item = self.scene.addEllipse(center_x - point_size / 2, center_y - point_size / 2, point_size, point_size, QPen(color, 1), QBrush(color))
         pointer_item.setZValue(self.Z_OVERLAYS_BASE + 2); self.pointer_items.append(pointer_item)
-    
+
     def clear_all_pointers(self):
         for item in self.pointer_items:
             if item.scene(): self.scene.removeItem(item)
