@@ -927,6 +927,7 @@ class X_Grid(QMainWindow):
             QApplication.restoreOverrideCursor()
 
     def _render_page_to_memory(self, display_mode, page_size_id, orientation):
+        # --- ▼▼▼ ここからが修正箇所 ▼▼▼ ---
         buffer = QBuffer()
         buffer.open(QBuffer.OpenModeFlag.ReadWrite)
         
@@ -938,9 +939,9 @@ class X_Grid(QMainWindow):
         page_layout.setOrientation(orientation)
         page_layout.setMargins(QMarginsF(0, 0, 0, 0))
         pdf_writer.setPageLayout(page_layout)
-
         pdf_writer.setResolution(300)
 
+        # 描画用に一時的なプロジェクトとレンダラーを作成
         temp_project = Project()
         temp_project.layers = self.project.layers
         temp_project.k_value = self.project.k_value
@@ -953,32 +954,26 @@ class X_Grid(QMainWindow):
         temp_project.text_annotations = self.project.text_annotations
         temp_project.label_positions = self.project.label_positions
         temp_project.title_is_displayed = self.project.title_is_displayed
-        
         temp_project.display_mode = display_mode
         
         if display_mode == 'summary':
-            temp_project.grid_rows = temp_project.grid_rows_a4
-            temp_project.grid_cols = temp_project.grid_cols_a4
-            temp_project.page_orientation = QPageLayout.Orientation.Portrait
+            temp_project.grid_rows, temp_project.grid_cols, temp_project.page_orientation = temp_project.grid_rows_a4, temp_project.grid_cols_a4, QPageLayout.Orientation.Portrait
         else:
-            temp_project.grid_rows = self.project.grid_rows
-            temp_project.grid_cols = self.project.grid_cols
-            temp_project.page_orientation = self.project.page_orientation
+            temp_project.grid_rows, temp_project.grid_cols, temp_project.page_orientation = self.project.grid_rows, self.project.grid_cols, self.project.page_orientation
         
         temp_project.map_rotation = self.project.map_rotation
-
-        temp_project.grid_rows_a4 = self.project.grid_rows_a4
-        temp_project.grid_cols_a4 = self.project.grid_cols_a4
-        temp_project.grid_rows_a3 = self.project.grid_rows_a3
-        temp_project.grid_cols_a3 = self.project.grid_cols_a3
+        temp_project.grid_rows_a4, temp_project.grid_cols_a4 = self.project.grid_rows_a4, self.project.grid_cols_a4
+        temp_project.grid_rows_a3, temp_project.grid_cols_a3 = self.project.grid_rows_a3, self.project.grid_cols_a3
         
         temp_scene = QGraphicsScene()
         temp_renderer = MapRenderer(temp_scene, temp_project, for_pdf=True)
         temp_calculator = Calculator(temp_project, temp_renderer)
         temp_project.calculator = temp_calculator
         
+        # すべてのコンテンツを一時シーンに描画
         temp_renderer.full_redraw(hide_pointers=True, for_pdf=True)
         
+        # 描画すべきコンテンツ全体の範囲をシーン座標で取得
         source_rect = temp_renderer.get_full_content_rect()
         if not source_rect.isValid():
             raise Exception(f"ページ '{display_mode}' のコンテンツ描画範囲が無効です。")
@@ -986,39 +981,17 @@ class X_Grid(QMainWindow):
         painter = QPainter(pdf_writer)
         
         try:
-            # 物理寸法(5mm/セル)を厳守するためのスケール係数を計算
-            CELL_PHYSICAL_SIZE_MM = 5.0
-            DPI = pdf_writer.resolution()
-            DOTS_PER_MM = DPI / 25.4
-            dots_per_cell = CELL_PHYSICAL_SIZE_MM * DOTS_PER_MM
-            scale_factor = dots_per_cell / temp_project.cell_size_on_screen
-
-            # ページ全体のサイズをドット単位で取得
-            page_rect_dots = pdf_writer.pageLayout().fullRectPixels(DPI)
-
-            # スケーリング後のコンテンツサイズ
-            scaled_width = source_rect.width() * scale_factor
-            scaled_height = source_rect.height() * scale_factor
-
-            # 中央寄せのためのマージン
-            margin_x = (page_rect_dots.width() - scaled_width) / 2.0
-            margin_y = (page_rect_dots.height() - scaled_height) / 2.0
-
-            # Painterの状態を保存し、変換を適用
-            painter.save()
+            # 以前の手動での拡大・移動処理は、ビューポートの状態に依存するため不安定でした。
+            # 新しいロジックでは、`QGraphicsScene.render`の機能を最大限に活用します。
+            # これにより、コンテンツ全体(source_rect)を、PDFページ全体(page_rect_dots)に
+            # アスペクト比を維持しながらフィットさせることができます。
             
-            # 1. 中央配置のための平行移動
-            painter.translate(margin_x, margin_y)
-            # 2. 物理寸法を保証するためのスケーリング
-            painter.scale(scale_factor, scale_factor)
-            # 3. シーンコンテンツのオフセットを補正するための平行移動
-            painter.translate(-source_rect.left(), -source_rect.top())
+            # PDFのページ全体のサイズをデバイス単位(ドット)で取得
+            page_rect_dots = pdf_writer.pageLayout().fullRectPixels(pdf_writer.resolution())
             
-            # 描画 (renderにはpainterのみを渡す)
-            temp_scene.render(painter)
-
-            # Painterの状態を復元
-            painter.restore()
+            # シーンの `source_rect` の内容を、PDFページの `page_rect_dots` に描画します。
+            # `KeepAspectRatio` を指定することで、自動的に拡大・縮小され、中央に配置されます。
+            temp_scene.render(painter, QRectF(page_rect_dots), source_rect, Qt.AspectRatioMode.KeepAspectRatio)
 
         finally:
             painter.end()
@@ -1026,6 +999,7 @@ class X_Grid(QMainWindow):
         pdf_data = buffer.data()
         buffer.close()
         return bytes(pdf_data)
+        # --- ▲▲▲ 修正箇所ここまで ▲▲▲ ---
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

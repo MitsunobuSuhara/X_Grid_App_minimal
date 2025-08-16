@@ -170,40 +170,29 @@ class MapRenderer:
         return QRectF(self.grid_offset_x, self.grid_offset_y, width, height)
 
     def get_full_content_rect(self):
-        is_summary_mode = (self.project.is_split_mode and
-                           self.project.display_mode == 'summary' and
-                           self.project.calculation_data is not None)
-
-        if self.scene and self.scene.items():
-            all_items_rect = self.scene.itemsBoundingRect()
-
-            if is_summary_mode:
-                return all_items_rect.adjusted(-20, -20, 20, 20)
-            
-            # 地図ビューの場合
-            grid_rect = self.get_grid_rect()
-            combined_rect = all_items_rect.united(grid_rect)
-            
-            margin_left = self.grid_offset_x - 20
-            margin_top = self.grid_offset_y - 145 - 5
-            margin_right = 150
-            margin_bottom = 150
-
-            final_rect = combined_rect.adjusted(-margin_left, -margin_top, margin_right, margin_bottom)
-            
-            return final_rect
-
-        else:
-            # シーンにアイテムがない場合
+        # --- ▼▼▼ 修正点 ▼▼▼ ---
+        # 複雑なマージン計算を廃止し、シーン全体のバウンディングボックスを基準にするように変更
+        if not self.scene or not self.scene.items():
+            # フォールバック: シーンにアイテムがない場合
             grid_width = self.project.grid_cols * self.project.cell_size_on_screen
             grid_height = self.project.grid_rows * self.project.cell_size_on_screen
-            
-            min_x = self.grid_offset_x - 25 
+            min_x = self.grid_offset_x - 80
             min_y = self.grid_offset_y - 150
             width = grid_width + 150
             height = grid_height + 300
-            
             return QRectF(min_x, min_y, width, height)
+
+        # シーン内の全ての描画アイテムを囲む矩形を取得
+        content_rect = self.scene.itemsBoundingRect()
+        
+        # グリッド領域もバウンディングボックスに含める
+        grid_rect = self.get_grid_rect()
+        if grid_rect.isValid():
+            content_rect = content_rect.united(grid_rect)
+        
+        # 最終的な描画範囲として、若干のマージンを追加して返す
+        return content_rect.adjusted(-20, -20, 20, 20)
+        # --- ▲▲▲ 修正ここまで ▲▲▲ ---
 
     def full_redraw(self, hide_pointers=False, hide_calc_results=False, for_pdf=False):
         self.for_pdf = for_pdf
@@ -305,21 +294,18 @@ class MapRenderer:
             pen.setColor(style['line_color'])
             pen.setStyle(style['pen_style'])
 
-            if self.for_pdf:
-                # PDF出力時: main.py側でcell_size_on_screenが物理的なドット数に設定されている。
-                # そのため、ここではスケーリングを考慮せず、物理的な太さを直接計算する。
-                # 非Cosmeticペンを使い、ペン幅をドット単位で指定する。
-                dots_per_mm = 300 / 25.4
-                pen_width_in_dots = style['line_width'] * dots_per_mm
-                pen.setWidthF(pen_width_in_dots)
-                pen.setCosmetic(False) # Painterのスケーリング(1.0)が適用される
-            else:
-                # 画面表示時: 非Cosmeticペンを使用し、ペン幅はシーン座標系で定義する。
-                # これにより、ユーザーのズーム操作に合わせて線の太さがスケーリングされる。
-                # 係数5.0は、画面上での見た目を調整するための経験値。
-                pen_width_in_scene_units = style['line_width'] * 5.0
-                pen.setWidthF(pen_width_in_scene_units)
-                pen.setCosmetic(False)
+            # --- ▼▼▼ 修正点 ▼▼▼ ---
+            # 画面表示とPDF出力でペン幅の計算ロジックを統一
+            # style['line_width'] は mm 単位。
+            # 1セルが物理的に5mm、シーン座標で25単位(cell_size_on_screen)であるため、
+            # 1mm は (cell_size_on_screen / 5.0) = 5.0 シーン単位となる。
+            # この変換係数を使ってシーン単位のペン幅を計算する。
+            pen_width_in_scene_units = style['line_width'] * 5.0
+            pen.setWidthF(pen_width_in_scene_units)
+            # Painterのスケーリングが適用されるように非Cosmeticに設定
+            # これにより、ズームしてもPDFに出力しても、相対的な線の太さが保たれる
+            pen.setCosmetic(False)
+            # --- ▲▲▲ 修正ここまで ▲▲▲ ---
 
             brush = QBrush(style['fill_color'])
             
