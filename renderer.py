@@ -10,7 +10,8 @@ from shapely.geometry import box, shape, Polygon, MultiPolygon, LineString, Mult
 from shapely.ops import unary_union, nearest_points
 
 from utils import DEFAULT_STYLE_INFO, _parse_any_color_string
-# ... (DraggableLabelItem クラスは変更なし) ...
+
+
 class DraggableLabelItem(QGraphicsTextItem):
     positionChanged = pyqtSignal(object, QPointF)
 
@@ -20,43 +21,28 @@ class DraggableLabelItem(QGraphicsTextItem):
         self.is_annotation = is_annotation
         self.setFlags(
             self.flags() | 
-            QGraphicsTextItem.GraphicsItemFlag.ItemIsMovable | 
             QGraphicsTextItem.GraphicsItemFlag.ItemIsSelectable
         )
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.start_pos = QPointF()
-        self.is_dragging = False
         self.setData(0, "draggable_label")
 
     def mousePressEvent(self, event: QGraphicsSceneMouseEvent):
-        if event.button() == Qt.MouseButton.RightButton:
-            self.setSelected(True)
-            self.start_pos = self.pos()
-            self.is_dragging = True
-            event.accept()
-        else:
-            super().mousePressEvent(event)
+        # イベントをビューに伝播させつつ、アイテム選択のためにsuperも呼ぶ
+        event.ignore()
+        super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event: QGraphicsSceneMouseEvent):
-        if self.is_dragging and (event.buttons() & Qt.MouseButton.RightButton):
-            new_pos = self.mapToParent(event.pos()) - self.mapToParent(event.lastPos()) + self.pos()
-            self.setPos(new_pos)
-            event.accept()
-        else:
-            super().mouseMoveEvent(event)
+        # ドラッグ処理はビュー側に任せるため、イベントを伝播させる
+        event.ignore()
+        super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event: QGraphicsSceneMouseEvent):
-        if event.button() == Qt.MouseButton.RightButton and self.is_dragging:
-            self.is_dragging = False
-            end_pos = self.pos()
-            if self.start_pos != end_pos:
-                self.positionChanged.emit(self.unique_id, end_pos)
-            event.accept()
-        else:
-            super().mouseReleaseEvent(event)
+        # リリース処理はビュー側に任せるため、イベントを伝播させる
+        event.ignore()
+        super().mouseReleaseEvent(event)
 
     def paint(self, painter, option, widget):
-        if self.is_annotation and self.isSelected():
+        if self.isSelected():
             painter.setPen(QPen(QColor("cyan"), 1, Qt.PenStyle.DashLine))
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawRect(self.boundingRect())
@@ -66,7 +52,6 @@ class DraggableLabelItem(QGraphicsTextItem):
 
 class MapRenderer:
     def __init__(self, scene, project, for_pdf=False):
-        # ... (変更なし) ...
         self.scene = scene
         self.project = project
         self.for_pdf = for_pdf
@@ -84,7 +69,6 @@ class MapRenderer:
 
         self._setup_drawing_styles()
 
-    # ... (scene_to_world, world_geom_to_scene_geom, _get_snap_geometries, find_snap_point, find_trace_points は変更なし) ...
     def scene_to_world(self, scene_pos):
         params = self._get_transform_parameters()
         if not params:
@@ -158,12 +142,11 @@ class MapRenderer:
         snap_geoms = self._get_snap_geometries()
         if not snap_geoms: return None, None
         
-        # 複数のジオメトリを一つにまとめる
         try:
             combined_geoms = unary_union(snap_geoms)
             if combined_geoms.is_empty: return None, None
         except Exception:
-            return None, None # 結合に失敗した場合
+            return None, None 
 
         p1, p2 = nearest_points(combined_geoms, mouse_world_point)
         
@@ -171,7 +154,6 @@ class MapRenderer:
             scene_snap_geom = self.world_geom_to_scene_geom(p1)
             if scene_snap_geom:
                 snapped_on_geom = None
-                # 距離が最も近いジオメトリを探す
                 min_dist = float('inf')
                 for geom in snap_geoms:
                     dist = p1.distance(geom)
@@ -198,36 +180,29 @@ class MapRenderer:
 
                 coords = list(line.coords)
                 
-                # トレースする頂点を抽出
-                trace_coords = []
-                
-                # 始点と終点が逆順の場合
                 if start_dist > end_dist:
                     start_dist, end_dist = end_dist, start_dist
-                    coords.reverse() # 座標リストを反転
+                    coords.reverse()
 
+                trace_coords = []
                 in_segment = False
                 for i in range(len(coords)):
                     p_dist = line.project(Point(coords[i]))
                     
                     if p_dist >= start_dist and p_dist <= end_dist:
                         if not in_segment:
-                            # セグメントの開始
                             trace_coords.append(start_point_world.coords[0])
-                            # 始点が頂点でない場合、最初の頂点を追加
                             if p_dist > start_dist:
                                 trace_coords.append(coords[i])
                             in_segment = True
                         else:
                             trace_coords.append(coords[i])
                     elif in_segment:
-                        # セグメントの終了
                         break
                 
                 trace_coords.append(end_point_world.coords[0])
 
                 if len(trace_coords) >= 2:
-                    # 最初の点（始点）を削除して重複を防ぐ
                     if Point(trace_coords[0]).equals(start_point_world):
                         trace_coords.pop(0)
 
@@ -238,7 +213,7 @@ class MapRenderer:
                 continue
 
         return None
-
+    
     def is_cell_on_boundary(self, row, col, target_geom):
         if not target_geom: return False
         
@@ -335,26 +310,27 @@ class MapRenderer:
         self.draw_summary_page_contents(for_pdf=for_pdf)
 
     def clear_all_graphics_items(self):
-        user_annotations = [item for item in self.annotation_items if isinstance(item, DraggableLabelItem)]
+        # シーンからすべてのアイテムを削除（テキストアイテムの参照は保持される）
+        self.scene.clear()
         
-        # ▼▼▼ ここから修正 ▼▼▼
-        # view の状態をここでリセットする
+        # view の状態をリセット
         if not self.for_pdf and self.scene.views():
             view = self.scene.views()[0]
             view.clear_snap_indicator()
             view.last_trace_geom = None
-        
-        self.scene.clear()
-        # ▲▲▲ ここまで修正 ▲▲▲
 
-        self.grid_items, self.compass_items, self.calculation_items, self.title_items, self.pointer_items, self.annotation_items = [], [], [], [], [], []
-        self.in_area_cells_outline, self.temp_splitting_line_item, self.fixed_split_line_items = None, None, []
+        # すべての内部リストをクリア
+        self.grid_items.clear()
+        self.compass_items.clear()
+        self.calculation_items.clear()
+        self.title_items.clear()
+        self.pointer_items.clear()
+        self.annotation_items.clear()
+        self.in_area_cells_outline, self.temp_splitting_line_item = None, None
+        self.fixed_split_line_items.clear()
+        
         for layer in self.project.layers:
             layer['graphics_items'] = []
-
-        for item in user_annotations:
-            self.scene.addItem(item)
-            self.annotation_items.append(item)
             
     def clear_all_calculation_graphics(self):
         for item_list in [self.calculation_items, self.title_items]:
@@ -375,7 +351,6 @@ class MapRenderer:
         self.project.title_is_displayed = False
         self.draw_grid()
 
-    # ... (以降のメソッドは変更なし) ...
     def redraw_all_layers(self):
         for layer in self.project.layers:
             for item in layer.get('graphics_items', []):
@@ -383,12 +358,6 @@ class MapRenderer:
                     self.scene.removeItem(item)
             layer['graphics_items'] = []
         
-        temp_annotations = [item for item in self.annotation_items if isinstance(item, DraggableLabelItem)]
-        for item in self.annotation_items:
-            if not isinstance(item, DraggableLabelItem) and item.scene():
-                 self.scene.removeItem(item)
-        self.annotation_items = temp_annotations
-
         if not self.project.master_bbox:
             self.draw_compass()
             return
@@ -491,6 +460,11 @@ class MapRenderer:
             print(f"警告: フィーチャ描画をスキップ。理由: {e}")
 
     def draw_text_annotations(self):
+        for item in self.annotation_items:
+            if item.scene():
+                self.scene.removeItem(item)
+        self.annotation_items.clear()
+        
         for unique_id, data in self.project.text_annotations.items():
             world_pos = data['world_pos']
             text = data['text']
@@ -498,10 +472,13 @@ class MapRenderer:
             scene_pos_geom = self.world_geom_to_scene_geom(shape({'type': 'Point', 'coordinates': world_pos}))
             if not scene_pos_geom: continue
 
-            font = self.fonts['data_bold']
+            font = QFont(data['font_family'], data['font_size'])
+            font.setBold(data['font_bold'])
+            font.setItalic(data['font_italic'])
+            color = QColor(*data['color_rgba'])
             
             text_item = DraggableLabelItem(text, unique_id, is_annotation=True)
-            text_item.setDefaultTextColor(self.colors['dark'])
+            text_item.setDefaultTextColor(color)
             text_item.setFont(font)
             
             text_rect = text_item.boundingRect()
@@ -512,7 +489,32 @@ class MapRenderer:
             
             text_item.positionChanged.connect(self._handle_text_annotation_moved)
             self.annotation_items.append(text_item)
-    
+
+    def _setup_drawing_styles(self, for_summary_pdf=False):
+        if for_summary_pdf:
+            self.fonts = {
+                'title': QFont("游ゴシック", 16, QFont.Weight.Bold), 
+                'result': QFont("游ゴシック", 12, QFont.Weight.Bold), 
+                'header': QFont("游ゴシック", 9, QFont.Weight.Bold), 
+                'data': QFont("游ゴシック", 9), 
+                'data_bold': QFont("游ゴシック", 9, QFont.Weight.Bold),
+                'total': QFont("游ゴシック", 9, QFont.Weight.Bold), 
+                'scale': QFont("游ゴシック", 9), 
+                'highlight': QFont("游ゴシック", 9, QFont.Weight.Bold)
+            }
+        else:
+            self.fonts = {
+                'title': QFont("游ゴシック", 16, QFont.Weight.Bold), 
+                'result': QFont("游ゴシック", 12, QFont.Weight.Bold), 
+                'header': QFont("游ゴシック", 9, QFont.Weight.Bold), 
+                'data': QFont("游ゴシック", 9), 
+                'data_bold': QFont("游ゴシック", 9, QFont.Weight.Bold),
+                'total': QFont("游ゴシック", 9, QFont.Weight.Bold), 
+                'scale': QFont("游ゴシック", 10), 
+                'highlight': QFont("游ゴシック", 9, QFont.Weight.Bold)
+            }
+        self.colors = {'normal': QColor("#333333"), 'dark': QColor("black"), 'highlight': QColor("red")}
+
     def draw_grid(self):
         for item in self.grid_items:
             if item.scene(): self.scene.removeItem(item)
@@ -570,10 +572,8 @@ class MapRenderer:
             self.trace_preview_item = self.scene.addPath(trace_path, pen)
             self.trace_preview_item.setZValue(self.Z_OVERLAYS_BASE + 52)
             
-            # 最終的なプレビューライン
             if current_mouse_pos:
                 path.lineTo(trace_points[-1])
-                # path.lineTo(current_mouse_pos) # トレース中はマウス位置への線は不要
 
         elif current_mouse_pos:
             path.lineTo(current_mouse_pos)
@@ -1185,31 +1185,6 @@ class MapRenderer:
         cos_theta, sin_theta = math.cos(theta), math.sin(theta)
         return [((p_x-orig_center_x)*cos_theta - (p_y-orig_center_y)*sin_theta + orig_center_x, (p_x-orig_center_x)*sin_theta + (p_y-orig_center_y)*cos_theta + orig_center_y) for p_x, p_y in coords]
 
-    def _setup_drawing_styles(self, for_summary_pdf=False):
-        if for_summary_pdf:
-            self.fonts = {
-                'title': QFont("游ゴシック", 16, QFont.Weight.Bold), 
-                'result': QFont("游ゴシック", 12, QFont.Weight.Bold), 
-                'header': QFont("游ゴシック", 9, QFont.Weight.Bold), 
-                'data': QFont("游ゴシック", 9), 
-                'data_bold': QFont("游ゴシック", 9, QFont.Weight.Bold),
-                'total': QFont("游ゴシック", 9, QFont.Weight.Bold), 
-                'scale': QFont("游ゴシック", 9), 
-                'highlight': QFont("游ゴシック", 9, QFont.Weight.Bold)
-            }
-        else:
-            self.fonts = {
-                'title': QFont("游ゴシック", 16, QFont.Weight.Bold), 
-                'result': QFont("游ゴシック", 12, QFont.Weight.Bold), 
-                'header': QFont("游ゴシック", 9, QFont.Weight.Bold), 
-                'data': QFont("游ゴシック", 9), 
-                'data_bold': QFont("游ゴシック", 9, QFont.Weight.Bold),
-                'total': QFont("游ゴシック", 9, QFont.Weight.Bold), 
-                'scale': QFont("游ゴシック", 10), 
-                'highlight': QFont("游ゴシック", 9, QFont.Weight.Bold)
-            }
-        self.colors = {'normal': QColor("#333333"), 'dark': QColor("black"), 'highlight': QColor("red")}
-    
     def _get_feature_style(self, feature, layer_info):
         props = feature.get('properties', {})
         final_style = DEFAULT_STYLE_INFO.copy()

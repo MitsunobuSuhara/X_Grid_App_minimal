@@ -1,7 +1,7 @@
 # --- START OF FILE project.py ---
 
 import uuid
-from PyQt6.QtGui import QPageLayout
+from PyQt6.QtGui import QPageLayout, QFont, QColor
 from shapely.geometry import shape, Polygon, MultiPolygon, LineString
 from shapely.ops import unary_union, polygonize
 from shapely.affinity import rotate, scale
@@ -14,7 +14,7 @@ class Project:
         self.layers = []
         self.k_value = 25.0
         self.cell_size_on_screen = 25
-        self.grid_rows_a4, self.grid_cols_a4 = 45, 31 # 横セル数を30から31に変更
+        self.grid_rows_a4, self.grid_cols_a4 = 45, 31
         self.grid_rows_a3, self.grid_cols_a3 = 45, 73
         self.grid_rows, self.grid_cols = self.grid_rows_a4, self.grid_cols_a4
         self.page_orientation = QPageLayout.Orientation.Portrait
@@ -71,10 +71,36 @@ class Project:
     def set_label_position(self, unique_feature_id, world_coords):
         self.label_positions[unique_feature_id] = world_coords
 
-    def add_text_annotation(self, text, world_pos):
+    def add_text_annotation(self, text, world_pos, font=None, color=None):
         new_id = uuid.uuid4()
-        self.text_annotations[new_id] = {'text': text, 'world_pos': world_pos}
+        
+        if font is None:
+            font = QFont("游ゴシック", 10)
+            font.setBold(True)
+        if color is None:
+            color = QColor("black")
+
+        self.text_annotations[new_id] = {
+            'text': text, 
+            'world_pos': world_pos,
+            'font_family': font.family(),
+            'font_size': font.pointSize(),
+            'font_bold': font.bold(),
+            'font_italic': font.italic(),
+            'color_rgba': color.getRgb()
+        }
         return new_id
+
+    def update_text_annotation_style(self, annotation_id, new_text, new_font, new_color):
+        if annotation_id in self.text_annotations:
+            self.text_annotations[annotation_id].update({
+                'text': new_text,
+                'font_family': new_font.family(),
+                'font_size': new_font.pointSize(),
+                'font_bold': new_font.bold(),
+                'font_italic': new_font.italic(),
+                'color_rgba': new_color.getRgb()
+            })
 
     def update_text_annotation_position(self, annotation_id, new_world_pos):
         if annotation_id in self.text_annotations:
@@ -87,7 +113,7 @@ class Project:
     def remove_all_annotations(self):
         self.text_annotations.clear()
         self.label_positions.clear()
-
+    
     def reset_split_settings(self):
         self.split_lines = []
         self.current_split_line_points = []
@@ -105,19 +131,14 @@ class Project:
         if not self.split_lines:
             raise ValueError("有効な分割線がありません。")
 
-        # すべてのラインを結合
         splitter = unary_union(self.split_lines)
         
-        # 1. ポリゴンの境界と分割線を結合
         union_of_lines = unary_union([combined_geom.boundary, splitter])
         
-        # 2. 結合したラインからポリゴンを生成
         polygons = list(polygonize(union_of_lines))
 
-        # 3. 生成されたポリゴンのうち、元のポリゴン内に重心を持つものだけを抽出
         valid_polygons = [p for p in polygons if combined_geom.contains(p.representative_point()) and not p.is_empty]
         
-        # マルチポリゴンを個別のポリゴンに分解する
         final_polygons = []
         for poly in valid_polygons:
             if isinstance(poly, MultiPolygon):
@@ -182,8 +203,7 @@ class Project:
                         geom = geom.buffer(0)
                     if geom and not geom.is_empty:
                         all_geoms_for_bbox.append(geom)
-                except Exception as e:
-                    print(f"BBox計算中のジオメトリエラー: レイヤ {layer.get('layer_name', 'N/A')} - {e}")
+                except Exception:
                     continue
 
         if not all_geoms_for_bbox:

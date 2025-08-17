@@ -1,3 +1,5 @@
+# --- START OF FILE app_state.py ---
+
 from enum import Enum, auto
 
 class AppState(Enum):
@@ -8,6 +10,7 @@ class AppState(Enum):
     AWAITING_BASE_CALC_MODE = auto()   # 基本/デフォルトの計算モード(内部/外部)の選択待ち
     AWAITING_LANDING_POINT = auto() # 起点(土場/入口)のクリック待ち
     AWAITING_TEXT_POINT = auto()    # テキストボックスの配置場所クリック待ち
+    AWAITING_ANNOTATION_POINT = auto() # 注釈テキストの配置場所クリック待ち
     AWAITING_EXTERNAL_DISTANCE = auto()# 外部距離Lの入力待ち
     DRAWING_SPLIT_LINE = auto()     # 区域の分割線を描画中
     CONFIGURING_SUB_AREAS = auto()  # 分割後の各エリアの計算方法を設定中

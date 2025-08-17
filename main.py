@@ -23,7 +23,7 @@ from app_state import AppState
 from project import Project
 from renderer import MapRenderer
 from calculator import Calculator
-from ui_components import LayerSelectionDialog, DroppableListWidget, MyGraphicsView
+from ui_components import LayerSelectionDialog, DroppableListWidget, MyGraphicsView, TextAnnotationDialog
 
 class X_Grid(QMainWindow):
     def __init__(self):
@@ -138,6 +138,17 @@ class X_Grid(QMainWindow):
         
         left_panel_layout.addStretch(1)
 
+        annotation_label = QLabel("<b>テキストツール</b>")
+        self.add_annotation_button = QPushButton("テキストを追加")
+        self.remove_all_annotations_button = QPushButton("すべてのテキストを削除")
+        annotation_layout = QHBoxLayout()
+        annotation_layout.addWidget(self.add_annotation_button)
+        annotation_layout.addWidget(self.remove_all_annotations_button)
+
+        left_panel_layout.addWidget(annotation_label)
+        left_panel_layout.addLayout(annotation_layout)
+
+
         right_panel_widget = QWidget()
         right_panel_layout = QVBoxLayout(right_panel_widget)
         right_panel_layout.setContentsMargins(0, 10, 10, 10)
@@ -185,7 +196,7 @@ class X_Grid(QMainWindow):
             QListWidget::indicator { border: 1px solid #000000; background-color: #FFFFFF; width: 13px; height: 13px; } 
             QListWidget::indicator:checked { border: 1px solid #000000; background-color: qradialgradient(cx: 0.5, cy: 0.5, radius: 0.5, fx: 0.5, fy: 0.5, stop: 0 #4287F5, stop: 0.4 #4287F5, stop: 0.41 #FFFFFF, stop: 1 #FFFFFF); } 
             QGraphicsView { border: 1px solid #767676; } 
-            QLineEdit { background-color: #FFFFFF; border: 1px solid #ABADB3; border-radius: 3px; padding: 2px 4px; } 
+            QLineEdit { background-color: #FFFFFF; border: 1px solid #ABADB3; border-radius: 3px; padding: 2px 4px; selection-background-color: #CCCCCC; } 
             QComboBox { background-color: #FFFFFF; border: 1px solid #ABADB3; border-radius: 3px; padding: 2px 4px; }
             QFrame[frameShape="4"] { border: none; height: 1px; background-color: #D1D1D1; }
             QCheckBox { color: #000000; }
@@ -225,9 +236,11 @@ class X_Grid(QMainWindow):
 
         self.calculate_button.clicked.connect(self.run_calculation_and_draw); 
         self.export_button.clicked.connect(self.export_results); self.update_title_button.clicked.connect(self.update_title_display); self.subtitle_input.returnPressed.connect(self.update_title_display); self.view.sceneClicked.connect(self.on_scene_clicked); self.view.sceneRightClicked.connect(self.on_scene_right_clicked); self.display_mode_combo.currentIndexChanged.connect(self.on_display_mode_changed)
-        self.view.addTextRequested.connect(self.add_text_annotation)
+        
+        self.add_annotation_button.clicked.connect(self.start_add_text)
         self.view.removeAnnotationRequested.connect(self.remove_text_annotation)
-        self.view.removeAllAnnotationsRequested.connect(self.remove_all_text_annotations)
+        self.view.editAnnotationPropertiesRequested.connect(self.edit_text_annotation_properties)
+        self.remove_all_annotations_button.clicked.connect(self.remove_all_text_annotations)
         self.view.backspacePressed.connect(self._handle_backspace_press)
         
         self._update_ui_for_state(AppState.IDLE)
@@ -260,6 +273,7 @@ class X_Grid(QMainWindow):
             self.area_label.setText("面積: - ha")
 
     def _update_ui_for_state(self, new_state):
+        self.previous_app_state = self.project.app_state
         self.project.app_state = new_state
         
         self.start_single_button.setEnabled(False)
@@ -271,7 +285,7 @@ class X_Grid(QMainWindow):
         self.view.viewport().setCursor(Qt.CursorShape.ArrowCursor)
         
         has_settings = bool(self.project.default_landing_cell or any(a.get('landing_cell') for a in self.project.sub_area_data) or self.project.split_lines or self.project.calculation_data)
-        is_interactive_mode = new_state in [AppState.AWAITING_LANDING_POINT, AppState.DRAWING_SPLIT_LINE]
+        is_interactive_mode = new_state in [AppState.AWAITING_LANDING_POINT, AppState.DRAWING_SPLIT_LINE, AppState.AWAITING_ANNOTATION_POINT]
         self.clear_settings_button.setEnabled(has_settings or is_interactive_mode)
         
         is_drawing_split = new_state == AppState.DRAWING_SPLIT_LINE
@@ -295,7 +309,8 @@ class X_Grid(QMainWindow):
                 "チェックが入っていることを確認し、\n"
                 "**「区域全体」**または**「区域を分割」**ボタンで\n"
                 "計算を開始してください。"
-                "<br><br><small>※ 地図はCtrlキーを押しながらドラッグで移動できます。</small>"
+                "<br><br><small>※ 地図はCtrlキーを押しながらドラッグで移動できます。<br>"
+                "※ テキスト/ラベルは右クリックで移動や編集ができます。</small>"
             )
             self._set_guide_text(ready_guide_text)
             self.start_single_button.setEnabled(True)
@@ -304,6 +319,9 @@ class X_Grid(QMainWindow):
             self.view.viewport().setCursor(Qt.CursorShape.CrossCursor)
         elif new_state == AppState.DRAWING_SPLIT_LINE:
             self._set_guide_text("地図上で区域を分割する線を描画し、\n完了したら**右クリック**します。")
+            self.view.viewport().setCursor(Qt.CursorShape.CrossCursor)
+        elif new_state == AppState.AWAITING_ANNOTATION_POINT:
+            self._set_guide_text("テキストを配置したい場所を\n地図上で**左クリック**してください。")
             self.view.viewport().setCursor(Qt.CursorShape.CrossCursor)
         elif new_state == AppState.CONFIGURING_SUB_AREAS:
              self._set_guide_text("分割後の各区域の設定を行います。\nダイアログの指示に従ってください。")
@@ -383,19 +401,14 @@ class X_Grid(QMainWindow):
         prompt_title = f"【{area_name}】の追加距離L"
 
         dialog = QInputDialog(self)
+        dialog.setWindowFlags(dialog.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint | Qt.WindowType.CustomizeWindowHint | Qt.WindowType.WindowTitleHint)
+        dialog.setStyleSheet("QLineEdit { selection-background-color: #CCCCCC; }")
         dialog.setWindowTitle(prompt_title)
         dialog.setLabelText("区域入口から土場までの水平距離 L (m):")
         dialog.setInputMode(QInputDialog.InputMode.DoubleInput)
         dialog.setDoubleRange(0, 99999)
         dialog.setDoubleDecimals(1)
         
-        dialog.setStyleSheet(
-            """
-            QDoubleSpinBox {
-                selection-background-color: #CCCCCC;
-                selection-color: black;
-            }
-            """)
         guide_global_pos = self.guide_content_label.mapToGlobal(QPoint(0, 0))
         dialog.move(guide_global_pos.x() + self.guide_content_label.width() + 20, guide_global_pos.y())
         
@@ -427,7 +440,7 @@ class X_Grid(QMainWindow):
         return any(l.get('is_calc_target') for l in self.project.layers if l.get('is_calculable'))
 
     def _evaluate_and_set_readiness_state(self):
-        if self.project.app_state in [AppState.AWAITING_TEXT_POINT]: return
+        if self.project.app_state in [AppState.AWAITING_ANNOTATION_POINT]: return
         if self._is_ready_to_start(): self._update_ui_for_state(AppState.READY_TO_START)
         else: self._update_ui_for_state(AppState.IDLE)
         
@@ -441,24 +454,58 @@ class X_Grid(QMainWindow):
         self.update_area_display()
         self.renderer.update_area_outline()
     
-    def add_text_annotation(self, scene_pos):
-        text, ok = QInputDialog.getText(self, "テキスト入力", "表示するテキストを入力してください:")
-        if ok and text:
-            world_pos = self.renderer.scene_to_world(scene_pos)
-            if world_pos:
-                self.project.add_text_annotation(text, world_pos)
-                self.renderer.full_redraw()
+    def start_add_text(self):
+        dialog = QInputDialog(self)
+        dialog.setWindowFlags(dialog.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint | Qt.WindowType.CustomizeWindowHint | Qt.WindowType.WindowTitleHint)
+        dialog.setWindowTitle("テキスト入力")
+        dialog.setLabelText("表示するテキストを入力してください:")
+        ok = dialog.exec()
+        text = dialog.textValue()
 
-    def remove_text_annotation(self, annotation_id):
-        reply = QMessageBox.question(self, "注釈の削除", "この注釈を削除しますか？",
-                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                                     QMessageBox.StandardButton.No)
-        if reply == QMessageBox.StandardButton.Yes:
-            self.project.remove_text_annotation(annotation_id)
+        if not (ok and text):
+            return
+
+        center_scene_pos = self.view.mapToScene(self.view.viewport().rect().center())
+        world_pos = self.renderer.scene_to_world(center_scene_pos)
+
+        if world_pos:
+            self.project.add_text_annotation(text, world_pos)
+            self.renderer.full_redraw()
+        else:
+            QMessageBox.warning(self, "エラー", "地図の中心座標を取得できませんでした。")
+    
+    def edit_text_annotation_properties(self, annotation_id):
+        annotation = self.project.text_annotations.get(annotation_id)
+        if not annotation:
+            return
+
+        target_item = None
+        for item in self.renderer.annotation_items:
+            if hasattr(item, 'unique_id') and item.unique_id == annotation_id:
+                target_item = item
+                break
+        
+        if not target_item:
+            QMessageBox.warning(self, "エラー", "編集対象のテキストが見つかりませんでした。")
+            return
+
+        dialog = TextAnnotationDialog(annotation, target_item, self)
+        if dialog.exec():
+            new_style = dialog.get_final_style()
+            self.project.update_text_annotation_style(
+                annotation_id,
+                new_style['text'],
+                new_style['font'],
+                new_style['color']
+            )
             self.renderer.full_redraw()
 
+    def remove_text_annotation(self, annotation_id):
+        self.project.remove_text_annotation(annotation_id)
+        self.renderer.full_redraw()
+
     def remove_all_text_annotations(self):
-        reply = QMessageBox.question(self, "すべての注釈を削除", "すべての注釈と移動したラベル位置をリセットしますか？\nこの操作は元に戻せません。",
+        reply = QMessageBox.question(self, "すべてのテキストを削除", "すべてのテキストと移動したラベル位置をリセットしますか？\nこの操作は元に戻せません。",
                                      QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                                      QMessageBox.StandardButton.No)
         if reply == QMessageBox.StandardButton.Yes:
@@ -468,6 +515,9 @@ class X_Grid(QMainWindow):
     def on_scene_clicked(self, scene_pos):
         current_state = self.project.app_state
         
+        if current_state == AppState.AWAITING_ANNOTATION_POINT:
+            return
+
         if self.project.is_split_mode and current_state == AppState.RESULTS_DISPLAYED:
             QMessageBox.information(self, "情報", "分割モードの計算結果です。\n設定を変更する場合は「設定クリア」を押してください。")
             return
@@ -636,6 +686,7 @@ class X_Grid(QMainWindow):
                 except (FionaError, UnicodeDecodeError):
                     with fiona.open(open_path, 'r', layer=layer_name, encoding='cp932') as c:
                         features, geom_type, crs = list(c), c.schema.get('geometry','Unknown'), c.crs
+                
                 if not features: continue
                 if crs and crs.get('proj') == 'longlat':
                     QMessageBox.warning(self, "座標系の警告", "地理座標系の可能性があります。平面直角座標系のデータを使用してください。")
@@ -802,6 +853,7 @@ class X_Grid(QMainWindow):
 
         if is_split_mode_multi_area:
             msg_box = QMessageBox(self)
+            msg_box.setWindowFlags(msg_box.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint | Qt.WindowType.CustomizeWindowHint | Qt.WindowType.WindowTitleHint)
             msg_box.setIcon(QMessageBox.Icon.Question)
             msg_box.setWindowTitle("エクスポート方法の選択")
             msg_box.setText("複数ページの出力方法を選択してください。")
@@ -855,13 +907,14 @@ class X_Grid(QMainWindow):
                 f.write(pdf_data)
 
             msg = QMessageBox(self)
+            msg.setWindowFlags(msg.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint | Qt.WindowType.CustomizeWindowHint | Qt.WindowType.WindowTitleHint)
             msg.setIcon(QMessageBox.Icon.Information)
             msg.setWindowTitle("成功")
             msg.setText(f"結果をPDFとして保存しました:\n{file_path}")
             msg.setInformativeText(
                 "<b>【印刷時の重要事項】</b><br>"
                 "PDFはAdobe社の仕様に準拠して正確に作成されていますが、"
-                "Webブラウザ等で表示・印刷すると、ごくわずかな寸法の誤差が生じる場合があります。<br><br>"
+                "<b>Webブラウザ等</b>で表示・印刷すると、ごくわずかな寸法の誤差が生じる場合があります。<br><br>"
                 "最も正確に印刷するには、<b>Adobe Acrobat Reader</b>で開き、"
                 "印刷設定で<b>「実際のサイズ」</b>を選択することを推奨します。"
             )
@@ -900,6 +953,7 @@ class X_Grid(QMainWindow):
                 merger.write(f)
             
             msg = QMessageBox(self)
+            msg.setWindowFlags(msg.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint | Qt.WindowType.CustomizeWindowHint | Qt.WindowType.WindowTitleHint)
             msg.setIcon(QMessageBox.Icon.Information)
             msg.setWindowTitle("成功")
             msg.setText(f"結果をPDFとして保存しました:\n{file_path}")
@@ -907,9 +961,9 @@ class X_Grid(QMainWindow):
                 "<b>【印刷時の重要事項】</b><br>"
                 "このPDFにはA4とA3など、異なるサイズのページが含まれている場合があります。<br>"
                 "PDFの寸法はAdobe社の仕様に準拠して正確に作成されていますが、"
-                "Webブラウザ等で表示・印刷すると、ごくわずかな寸法の誤差が生じることがあります。<br><br>"
+                "<b>Webブラウザ等</b>で表示・印刷すると、ごくわずかな寸法の誤差が生じることがあります。<br><br>"
                 "最も正確に印刷するには、以下の方法を推奨します。<br>"
-                "1. <b>(推奨)</b> Adobe Acrobat Readerで開き、印刷設定で<b>「PDFのページサイズに合わせて用紙を選択」</b>にチェックを入れてください。<br><br>"
+                "1. <b>(推奨)</b> <b>Adobe Acrobat Reader</b>で開き、印刷設定で<b>「PDFのページサイズに合わせて用紙を選択」</b>にチェックを入れてください。<br><br>"
                 "2. <b>(代替案)</b> 上記設定ができない場合、印刷ダイアログで<b>ページ範囲を指定</b>し、サイズごとに分けて（例: 1ページ目をA4、2-3ページ目をA3で）印刷してください。"
             )
             msg.exec()
