@@ -33,6 +33,7 @@ class X_Grid(QMainWindow):
         self.project = Project()
         self.scene = QGraphicsScene(self)
         self.renderer = MapRenderer(self.scene, self.project)
+        # 修正箇所: calculatorにrendererインスタンスを正しく渡す
         self.calculator = Calculator(self.project, self.renderer)
         self.project.calculator = self.calculator
         self.previous_app_state = AppState.IDLE
@@ -1058,37 +1059,40 @@ class X_Grid(QMainWindow):
         
         temp_renderer.full_redraw(hide_pointers=False, for_pdf=True)
         
-        source_rect = temp_renderer.get_full_content_rect()
-        if not source_rect.isValid():
-            raise Exception(f"ページ '{display_mode}' のコンテンツ描画範囲が無効です。")
+        # --- PDF出力精度の向上 ---
+        source_grid_rect = temp_renderer.get_grid_rect()
+        if not source_grid_rect.isValid():
+             raise Exception(f"ページ '{display_mode}' のグリッド描画範囲が無効です。")
         
+        extended_source_rect = temp_renderer.get_full_content_rect()
+        if not extended_source_rect.isValid():
+            raise Exception(f"ページ '{display_mode}' のコンテンツ描画範囲が無効です。")
+
+        PHYSICAL_CELL_SIZE_MM = 5.0
+        target_grid_width_mm = temp_project.grid_cols * PHYSICAL_CELL_SIZE_MM
+        target_grid_height_mm = temp_project.grid_rows * PHYSICAL_CELL_SIZE_MM
+        
+        scale_x = extended_source_rect.width() / source_grid_rect.width()
+        scale_y = extended_source_rect.height() / source_grid_rect.height()
+
+        target_width_mm = target_grid_width_mm * scale_x
+        target_height_mm = target_grid_height_mm * scale_y
+
+        page_rect_mm = page_layout.fullRect(QPageLayout.Unit.Millimeter)
+        margin_x_mm = (page_rect_mm.width() - target_width_mm) / 2.0
+        margin_y_mm = (page_rect_mm.height() - target_height_mm) / 2.0
+        
+        dots_per_mm = pdf_writer.resolution() / 25.4
+        target_rect_in_dots = QRectF(
+            margin_x_mm * dots_per_mm,
+            margin_y_mm * dots_per_mm,
+            target_width_mm * dots_per_mm,
+            target_height_mm * dots_per_mm
+        )
+
         painter = QPainter(pdf_writer)
         try:
-            scene_cell_size = temp_project.cell_size_on_screen
-            physical_cell_size_mm = 5.0
-            scene_units_per_mm = scene_cell_size / physical_cell_size_mm
-
-            resolution = pdf_writer.resolution()
-            mm_per_inch = 25.4
-            dots_per_mm = resolution / mm_per_inch
-
-            target_width_mm = source_rect.width() / scene_units_per_mm
-            target_height_mm = source_rect.height() / scene_units_per_mm
-
-            page_rect_mm = page_layout.fullRect(QPageLayout.Unit.Millimeter)
-            
-            margin_x_mm = (page_rect_mm.width() - target_width_mm) / 2.0
-            margin_y_mm = (page_rect_mm.height() - target_height_mm) / 2.0
-
-            target_rect_in_dots = QRectF(
-                margin_x_mm * dots_per_mm,
-                margin_y_mm * dots_per_mm,
-                target_width_mm * dots_per_mm,
-                target_height_mm * dots_per_mm
-            )
-
-            temp_scene.render(painter, target_rect_in_dots, source_rect)
-
+            temp_scene.render(painter, target_rect_in_dots, extended_source_rect)
         finally:
             painter.end()
 

@@ -26,20 +26,7 @@ class DraggableLabelItem(QGraphicsTextItem):
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setData(0, "draggable_label")
 
-    def mousePressEvent(self, event: QGraphicsSceneMouseEvent):
-        # イベントをビューに伝播させつつ、アイテム選択のためにsuperも呼ぶ
-        event.ignore()
-        super().mousePressEvent(event)
-
-    def mouseMoveEvent(self, event: QGraphicsSceneMouseEvent):
-        # ドラッグ処理はビュー側に任せるため、イベントを伝播させる
-        event.ignore()
-        super().mouseMoveEvent(event)
-
-    def mouseReleaseEvent(self, event: QGraphicsSceneMouseEvent):
-        # リリース処理はビュー側に任せるため、イベントを伝播させる
-        event.ignore()
-        super().mouseReleaseEvent(event)
+    # マウスイベントはすべて MyGraphicsView で処理するため、ここではオーバーライドしない
 
     def paint(self, painter, option, widget):
         if self.isSelected():
@@ -493,14 +480,14 @@ class MapRenderer:
     def _setup_drawing_styles(self, for_summary_pdf=False):
         if for_summary_pdf:
             self.fonts = {
-                'title': QFont("游ゴシック", 16, QFont.Weight.Bold), 
-                'result': QFont("游ゴシック", 12, QFont.Weight.Bold), 
-                'header': QFont("游ゴシック", 9, QFont.Weight.Bold), 
-                'data': QFont("游ゴシック", 9), 
-                'data_bold': QFont("游ゴシック", 9, QFont.Weight.Bold),
-                'total': QFont("游ゴシック", 9, QFont.Weight.Bold), 
-                'scale': QFont("游ゴシック", 9), 
-                'highlight': QFont("游ゴシック", 9, QFont.Weight.Bold)
+                'title': QFont("游ゴシック", 20, QFont.Weight.Bold), 
+                'result': QFont("游ゴシック", 16, QFont.Weight.Bold), 
+                'header': QFont("游ゴシック", 10, QFont.Weight.Bold), 
+                'data': QFont("游ゴシック", 13), 
+                'data_bold': QFont("游ゴシック", 13, QFont.Weight.Bold),
+                'total': QFont("游ゴシック", 10, QFont.Weight.Bold), 
+                'scale': QFont("游ゴシック", 10), 
+                'highlight': QFont("游ゴシック", 10, QFont.Weight.Bold)
             }
         else:
             self.fonts = {
@@ -661,18 +648,17 @@ class MapRenderer:
     def draw_landing_pointer(self, landing_cell, area_index, is_default_single_mode=False):
         row, col = landing_cell
         
-        if self.for_pdf:
-            point_size = self.project.cell_size_on_screen * 0.15
-        else:
-            point_size = self.project.cell_size_on_screen * 0.5
+        point_size = self.project.cell_size_on_screen * (0.15 if self.for_pdf else 0.5)
 
         center_x = self.grid_offset_x + col * self.project.cell_size_on_screen + self.project.cell_size_on_screen / 2
         center_y = self.grid_offset_y + row * self.project.cell_size_on_screen + self.project.cell_size_on_screen / 2
         
-        color = QColor("red")
-        if not is_default_single_mode and area_index is not None:
-            colors = [QColor("blue"), QColor("green"), QColor("purple"), QColor(255, 165, 0), QColor(139, 69, 19)]
-            color = colors[area_index % len(colors)]
+        color = QColor("red") # デフォルトは赤
+        if not self.for_pdf: # PDF出力時は常に赤
+            if not is_default_single_mode and area_index is not None:
+                # PDF出力でなく、分割モードの場合のみ色分け
+                colors = [QColor("blue"), QColor("green"), QColor("purple"), QColor(255, 165, 0), QColor(139, 69, 19)]
+                color = colors[area_index % len(colors)]
             
         pointer_item = self.scene.addEllipse(center_x - point_size / 2, center_y - point_size / 2, point_size, point_size, QPen(color, 1), QBrush(color))
         pointer_item.setZValue(self.Z_OVERLAYS_BASE + 2); self.pointer_items.append(pointer_item)
@@ -996,6 +982,7 @@ class MapRenderer:
         title_item = self._add_aligned_text(title_text, self.fonts['title'], self.colors['dark'], QPointF(x_start, y_pos), Qt.AlignmentFlag.AlignLeft)
         items.append(title_item)
         y_pos += line_height_large
+        y_pos += 20 # タイトルと次の行の間のスペース
 
         header_item = self._add_aligned_text("【各区域の計算結果】", self.fonts['result'], self.colors['dark'], QPointF(x_start, y_pos), Qt.AlignmentFlag.AlignLeft)
         items.append(header_item)
