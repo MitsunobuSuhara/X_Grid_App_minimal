@@ -13,7 +13,7 @@ from PyPDF2 import PdfWriter
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QPushButton, QFileDialog, QMessageBox, QWidget,
     QVBoxLayout, QHBoxLayout, QLabel, QListWidgetItem, QFrame, QLineEdit, QGraphicsScene,
-    QInputDialog, QComboBox
+    QInputDialog, QComboBox, QCheckBox
 )
 from PyQt6.QtCore import Qt, QRectF, QMarginsF, QPointF, QSize, QPoint, QSizeF, QBuffer
 from PyQt6.QtGui import QFont, QColor, QPainter, QPageLayout, QPageSize, QPdfWriter, QPen
@@ -100,13 +100,21 @@ class X_Grid(QMainWindow):
         self.start_single_button = QPushButton("① 区域全体で計算")
         self.start_single_button.setStyleSheet("font-size: 11pt; padding: 8px; font-weight: bold; background-color: #cce5ff;")
         
+        split_button_layout = QHBoxLayout()
         self.start_split_button = QPushButton("② 区域を分割して計算")
         self.start_split_button.setStyleSheet("font-size: 11pt; padding: 8px;")
-        
+        self.snap_checkbox = QCheckBox("スナップ")
+        self.trace_checkbox = QCheckBox("トレース")
+        split_button_layout.addWidget(self.start_split_button)
+        split_button_layout.addSpacing(10)
+        split_button_layout.addWidget(self.snap_checkbox)
+        split_button_layout.addWidget(self.trace_checkbox)
+        split_button_layout.addStretch(1)
+
         self.clear_settings_button = QPushButton("設定クリア")
         
         settings_button_layout.addWidget(self.start_single_button)
-        settings_button_layout.addWidget(self.start_split_button)
+        settings_button_layout.addLayout(split_button_layout)
         settings_button_layout.addWidget(self.clear_settings_button)
         
         layer_buttons_layout = QHBoxLayout()
@@ -180,6 +188,9 @@ class X_Grid(QMainWindow):
             QLineEdit { background-color: #FFFFFF; border: 1px solid #ABADB3; border-radius: 3px; padding: 2px 4px; } 
             QComboBox { background-color: #FFFFFF; border: 1px solid #ABADB3; border-radius: 3px; padding: 2px 4px; }
             QFrame[frameShape="4"] { border: none; height: 1px; background-color: #D1D1D1; }
+            QCheckBox { color: #000000; }
+            QCheckBox::indicator { border: 1px solid #000000; background-color: #FFFFFF; width: 13px; height: 13px; }
+            QCheckBox::indicator:checked { border: 1px solid #000000; background-color: qradialgradient(cx: 0.5, cy: 0.5, radius: 0.5, fx: 0.5, fy: 0.5, stop: 0 #4287F5, stop: 0.4 #4287F5, stop: 0.41 #FFFFFF, stop: 1 #FFFFFF); }
             """
         )
         
@@ -209,22 +220,32 @@ class X_Grid(QMainWindow):
         self.start_split_button.clicked.connect(self._start_split_area_workflow)
         self.clear_settings_button.clicked.connect(self.clear_all_calculation_settings)
         
+        self.snap_checkbox.toggled.connect(self._on_snap_toggled)
+        self.trace_checkbox.toggled.connect(self._on_trace_toggled)
+
         self.calculate_button.clicked.connect(self.run_calculation_and_draw); 
         self.export_button.clicked.connect(self.export_results); self.update_title_button.clicked.connect(self.update_title_display); self.subtitle_input.returnPressed.connect(self.update_title_display); self.view.sceneClicked.connect(self.on_scene_clicked); self.view.sceneRightClicked.connect(self.on_scene_right_clicked); self.display_mode_combo.currentIndexChanged.connect(self.on_display_mode_changed)
         self.view.addTextRequested.connect(self.add_text_annotation)
         self.view.removeAnnotationRequested.connect(self.remove_text_annotation)
         self.view.removeAllAnnotationsRequested.connect(self.remove_all_text_annotations)
-        # --- ▼▼▼ デバッグ機能の接続を削除 ▼▼▼ ---
-        # self.view.exportDebugInfoRequested.connect(self.export_debug_info)
-        # --- ▲▲▲ ---
+        self.view.backspacePressed.connect(self._handle_backspace_press)
         
         self._update_ui_for_state(AppState.IDLE)
 
-    # --- ▼▼▼ デバッグ機能のメソッドを削除 ▼▼▼ ---
-    # def export_debug_info(self):
-    #     ... (method content removed)
-    # --- ▲▲▲ ---
+    def _on_snap_toggled(self, checked):
+        self.project.snapping_enabled = checked
+        if not checked:
+            self.trace_checkbox.setChecked(False)
+            self.project.tracing_enabled = False
+        self.trace_checkbox.setEnabled(checked)
 
+    def _on_trace_toggled(self, checked):
+        if checked and not self.project.snapping_enabled:
+            self.trace_checkbox.setChecked(False)
+            self.project.tracing_enabled = False
+        else:
+            self.project.tracing_enabled = checked
+        
     def _set_guide_text(self, text):
         rich_text = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', text)
         self.guide_content_label.setText(rich_text)
@@ -252,6 +273,13 @@ class X_Grid(QMainWindow):
         has_settings = bool(self.project.default_landing_cell or any(a.get('landing_cell') for a in self.project.sub_area_data) or self.project.split_lines or self.project.calculation_data)
         is_interactive_mode = new_state in [AppState.AWAITING_LANDING_POINT, AppState.DRAWING_SPLIT_LINE]
         self.clear_settings_button.setEnabled(has_settings or is_interactive_mode)
+        
+        is_drawing_split = new_state == AppState.DRAWING_SPLIT_LINE
+        self.snap_checkbox.setEnabled(is_drawing_split)
+        self.trace_checkbox.setEnabled(is_drawing_split and self.snap_checkbox.isChecked())
+        if not is_drawing_split:
+            self.snap_checkbox.setChecked(False)
+            self.trace_checkbox.setChecked(False)
 
         if new_state == AppState.IDLE:
             initial_guide_text = (
@@ -525,6 +553,22 @@ class X_Grid(QMainWindow):
                 QMessageBox.warning(self, "情報", "分割線が描画されませんでした。")
                 self._update_ui_for_state(AppState.DRAWING_SPLIT_LINE)
 
+    def _handle_backspace_press(self):
+        """Backspaceキーが押されたときの処理"""
+        if self.project.app_state == AppState.DRAWING_SPLIT_LINE:
+            if self.project.current_split_line_points:
+                self.project.current_split_line_points.pop()
+                # 最後のトレースジオメトリもリセットする
+                if self.view:
+                    self.view.last_trace_geom = None
+                
+                # QPointをQPointFに変換し、さらにシーン座標に変換する
+                view_pos = self.view.mapFromGlobal(self.cursor().pos())
+                scene_pos = self.view.mapToScene(view_pos)
+                
+                # プレビューを更新
+                self.renderer.draw_splitting_line(self.project.current_split_line_points, scene_pos)
+
     def on_display_mode_changed(self, index):
         if index == -1: return
         mode = self.display_mode_combo.itemData(index)
@@ -662,6 +706,9 @@ class X_Grid(QMainWindow):
         self.project.reset_calculation_settings()
         self.project.remove_all_annotations()
         self.renderer.clear_all_calculation_graphics()
+        if self.view:
+            self.view.clear_snap_indicator()
+            self.view.last_trace_geom = None
         self.renderer.full_redraw()
         self._evaluate_and_set_readiness_state()
         self.update_area_display()
@@ -671,7 +718,6 @@ class X_Grid(QMainWindow):
             QMessageBox.information(self, "情報", "分割モードの計算結果です。\n設定を変更する場合は「設定クリア」を押してください。")
             return
 
-        # 既存のグラフィッククリア処理
         self.project.calculation_data = None
         self.renderer.clear_all_pointers()
         for item_list in [self.renderer.calculation_items, self.renderer.title_items]:
@@ -679,7 +725,6 @@ class X_Grid(QMainWindow):
                 if item.scene(): self.renderer.scene.removeItem(item)
             item_list.clear()
         
-        # 関連する設定を完全にリセット
         if self.project.is_split_mode:
             for area_data in self.project.sub_area_data:
                 area_data['landing_cell'] = None
@@ -689,14 +734,12 @@ class X_Grid(QMainWindow):
             
             self.project.configuring_area_index = -1
             self._update_ui_for_state(AppState.CONFIGURING_SUB_AREAS)
-            self._configure_next_sub_area() # これで最初のエリアから設定をやり直す
+            self._configure_next_sub_area()
         else:
-            # 単一モードの場合、デフォルト設定を完全にリセット
             self.project.default_landing_cell = None
             self.project.default_calc_mode = None
             self.project.default_additional_distance = 0.0
             
-            # 再度、計算方法の選択から開始させる
             self._ask_base_calc_mode()
         
         self.update_area_display()
@@ -967,7 +1010,6 @@ class X_Grid(QMainWindow):
         
         painter = QPainter(pdf_writer)
         try:
-            # 1. 単位換算の定義
             scene_cell_size = temp_project.cell_size_on_screen
             physical_cell_size_mm = 5.0
             scene_units_per_mm = scene_cell_size / physical_cell_size_mm
@@ -976,19 +1018,14 @@ class X_Grid(QMainWindow):
             mm_per_inch = 25.4
             dots_per_mm = resolution / mm_per_inch
 
-            # 2. 描画内容の物理的なサイズを計算
             target_width_mm = source_rect.width() / scene_units_per_mm
             target_height_mm = source_rect.height() / scene_units_per_mm
 
-            # 3. 用紙サイズとマージンを計算
-            # page_sizeからではなく、ページの向きが反映されたpage_layoutから寸法を取得する
             page_rect_mm = page_layout.fullRect(QPageLayout.Unit.Millimeter)
             
-            # コンテンツを用紙の中央に配置するためのマージン (mm)
             margin_x_mm = (page_rect_mm.width() - target_width_mm) / 2.0
             margin_y_mm = (page_rect_mm.height() - target_height_mm) / 2.0
 
-            # 4. 最終的な描画領域をPDFの描画単位(dot)で定義
             target_rect_in_dots = QRectF(
                 margin_x_mm * dots_per_mm,
                 margin_y_mm * dots_per_mm,
@@ -996,7 +1033,6 @@ class X_Grid(QMainWindow):
                 target_height_mm * dots_per_mm
             )
 
-            # 5. 固定スケールでレンダリング
             temp_scene.render(painter, target_rect_in_dots, source_rect)
 
         finally:

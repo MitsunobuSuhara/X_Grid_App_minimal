@@ -24,6 +24,8 @@ class Project:
         self.display_mode = 'summary'
         self.title_is_displayed = False
         self.calculator = None
+        self.snapping_enabled = False
+        self.tracing_enabled = False
 
         # --- 地図制御 ---
         self.master_bbox = None
@@ -207,35 +209,26 @@ class Project:
             a4_width_m, a4_height_m = self.grid_cols_a4 * self.k_value, self.grid_rows_a4 * self.k_value
             a3_width_m, a3_height_m = self.grid_cols_a3 * self.k_value, self.grid_rows_a3 * self.k_value
             
-            # --- ▼▼▼ 修正箇所 ▼▼▼ ---
-            # まずA4に収まるかチェック
             optimal_angle_a4 = self._find_optimal_rotation(master_geom, a4_width_m, a4_height_m)
             
             if optimal_angle_a4 is not None:
-                # A4に収まる場合
                 final_grid_rows, final_grid_cols, final_page_orientation, final_map_rotation = self.grid_rows_a4, self.grid_cols_a4, QPageLayout.Orientation.Portrait, optimal_angle_a4
                 info_message = f"A4縦に収めるため、{optimal_angle_a4}°回転しました。" if optimal_angle_a4 != 0 else "A4縦に収まります。"
                 layout_found = True
             else:
-                # A4に収まらない場合、A3を試す
                 optimal_angle_a3 = self._find_optimal_rotation(master_geom, a3_width_m, a3_height_m)
                 if optimal_angle_a3 is not None:
-                    # A3に収まる場合
                     final_grid_rows, final_grid_cols, final_page_orientation, final_map_rotation = self.grid_rows_a3, self.grid_cols_a3, QPageLayout.Orientation.Landscape, optimal_angle_a3
-                    info_message = "A4サイズに収まらないため、A3モードに切り替えます。" # 指定されたメッセージに変更
+                    info_message = "A4サイズに収まらないため、A3モードに切り替えます。"
                     layout_found = True
                 else:
-                    # A3にも収まらない場合（フォールバック）
                     final_grid_rows, final_grid_cols, final_page_orientation, final_map_rotation = self.grid_rows_a3, self.grid_cols_a3, QPageLayout.Orientation.Landscape, 0
                     info_message = "A3モードでも最適な回転が見つかりませんでした。データの一部が切れて表示される可能性があります。"
                     layout_found = False
-            # --- ▲▲▲ 修正箇所ここまで ▲▲▲
 
         layout_changed = (self.grid_rows != final_grid_rows or self.grid_cols != final_grid_cols or self.map_rotation != final_map_rotation or self.page_orientation != final_page_orientation)
         self.grid_rows, self.grid_cols, self.page_orientation, self.map_rotation = final_grid_rows, final_grid_cols, final_page_orientation, final_map_rotation
-        print(f"DEBUG: determine_layout - final_grid_rows: {final_grid_rows}, final_grid_cols: {final_grid_cols}")
-        print(f"DEBUG: determine_layout - final_page_orientation: {final_page_orientation}, final_map_rotation: {final_map_rotation}")
-
+        
         return layout_changed, info_message if layout_changed else ""
         
     def _get_combined_calculable_geom(self):

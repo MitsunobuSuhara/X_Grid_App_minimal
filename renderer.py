@@ -6,12 +6,11 @@ from PyQt6.QtGui import (
     QColor, QPen, QBrush, QFont, QPolygonF, QPainterPath, QFontMetrics
 )
 from PyQt6.QtWidgets import QGraphicsTextItem, QGraphicsSceneMouseEvent
-from shapely.geometry import box, shape, Polygon, MultiPolygon, LineString, MultiLineString
-from shapely.ops import unary_union
+from shapely.geometry import box, shape, Polygon, MultiPolygon, LineString, MultiLineString, Point
+from shapely.ops import unary_union, nearest_points
 
 from utils import DEFAULT_STYLE_INFO, _parse_any_color_string
-
-
+# ... (DraggableLabelItem クラスは変更なし) ...
 class DraggableLabelItem(QGraphicsTextItem):
     positionChanged = pyqtSignal(object, QPointF)
 
@@ -67,6 +66,7 @@ class DraggableLabelItem(QGraphicsTextItem):
 
 class MapRenderer:
     def __init__(self, scene, project, for_pdf=False):
+        # ... (変更なし) ...
         self.scene = scene
         self.project = project
         self.for_pdf = for_pdf
@@ -80,9 +80,11 @@ class MapRenderer:
         
         self.grid_items, self.compass_items, self.calculation_items, self.title_items, self.pointer_items, self.annotation_items = [], [], [], [], [], []
         self.in_area_cells_outline, self.temp_splitting_line_item, self.fixed_split_line_items = None, None, []
+        self.trace_preview_item = None
 
         self._setup_drawing_styles()
 
+    # ... (scene_to_world, world_geom_to_scene_geom, _get_snap_geometries, find_snap_point, find_trace_points は変更なし) ...
     def scene_to_world(self, scene_pos):
         params = self._get_transform_parameters()
         if not params:
@@ -122,6 +124,119 @@ class MapRenderer:
         except Exception as e:
             print(f"シーンジオメトリ変換エラー: {e}")
             return None
+        return None
+    
+    def _get_snap_geometries(self):
+        snap_geoms = []
+        for layer in self.project.layers:
+            for feature in layer['features']:
+                geom_dict = feature.get('geometry')
+                if not geom_dict: continue
+                try:
+                    shapely_geom = shape(geom_dict)
+                    if not shapely_geom or shapely_geom.is_empty: continue
+
+                    if "Polygon" in shapely_geom.geom_type:
+                        snap_geoms.append(shapely_geom.boundary)
+                    elif "LineString" in shapely_geom.geom_type or "Point" in shapely_geom.geom_type:
+                        snap_geoms.append(shapely_geom)
+                except Exception:
+                    continue
+        return snap_geoms
+
+    def find_snap_point(self, scene_pos, scene_tolerance):
+        if not self.project.layers: return None, None
+        params = self._get_transform_parameters()
+        if not params or params.get('scale') == 0: return None, None
+
+        world_tolerance = scene_tolerance / params['scale']
+        mouse_world_coords = self.scene_to_world(scene_pos)
+        if not mouse_world_coords: return None, None
+        
+        mouse_world_point = Point(mouse_world_coords)
+        
+        snap_geoms = self._get_snap_geometries()
+        if not snap_geoms: return None, None
+        
+        # 複数のジオメトリを一つにまとめる
+        try:
+            combined_geoms = unary_union(snap_geoms)
+            if combined_geoms.is_empty: return None, None
+        except Exception:
+            return None, None # 結合に失敗した場合
+
+        p1, p2 = nearest_points(combined_geoms, mouse_world_point)
+        
+        if p1.distance(p2) < world_tolerance:
+            scene_snap_geom = self.world_geom_to_scene_geom(p1)
+            if scene_snap_geom:
+                snapped_on_geom = None
+                # 距離が最も近いジオメトリを探す
+                min_dist = float('inf')
+                for geom in snap_geoms:
+                    dist = p1.distance(geom)
+                    if dist < min_dist:
+                        min_dist = dist
+                        snapped_on_geom = geom
+                
+                return QPointF(scene_snap_geom.x, scene_snap_geom.y), snapped_on_geom
+        
+        return None, None
+
+    def find_trace_points(self, trace_geom, start_point_world, end_point_world):
+        if not isinstance(trace_geom, (LineString, MultiLineString)):
+            return None
+
+        lines_to_trace = list(trace_geom.geoms) if isinstance(trace_geom, MultiLineString) else [trace_geom]
+
+        for line in lines_to_trace:
+            try:
+                start_dist = line.project(start_point_world)
+                end_dist = line.project(end_point_world)
+
+                if abs(start_dist - end_dist) < 1e-9: continue
+
+                coords = list(line.coords)
+                
+                # トレースする頂点を抽出
+                trace_coords = []
+                
+                # 始点と終点が逆順の場合
+                if start_dist > end_dist:
+                    start_dist, end_dist = end_dist, start_dist
+                    coords.reverse() # 座標リストを反転
+
+                in_segment = False
+                for i in range(len(coords)):
+                    p_dist = line.project(Point(coords[i]))
+                    
+                    if p_dist >= start_dist and p_dist <= end_dist:
+                        if not in_segment:
+                            # セグメントの開始
+                            trace_coords.append(start_point_world.coords[0])
+                            # 始点が頂点でない場合、最初の頂点を追加
+                            if p_dist > start_dist:
+                                trace_coords.append(coords[i])
+                            in_segment = True
+                        else:
+                            trace_coords.append(coords[i])
+                    elif in_segment:
+                        # セグメントの終了
+                        break
+                
+                trace_coords.append(end_point_world.coords[0])
+
+                if len(trace_coords) >= 2:
+                    # 最初の点（始点）を削除して重複を防ぐ
+                    if Point(trace_coords[0]).equals(start_point_world):
+                        trace_coords.pop(0)
+
+                    return [QPointF(p.x, p.y) for p in [self.world_geom_to_scene_geom(Point(c)) for c in trace_coords] if p]
+
+            except Exception as e:
+                print(f"Trace error: {e}")
+                continue
+
         return None
 
     def is_cell_on_boundary(self, row, col, target_geom):
@@ -222,7 +337,15 @@ class MapRenderer:
     def clear_all_graphics_items(self):
         user_annotations = [item for item in self.annotation_items if isinstance(item, DraggableLabelItem)]
         
+        # ▼▼▼ ここから修正 ▼▼▼
+        # view の状態をここでリセットする
+        if not self.for_pdf and self.scene.views():
+            view = self.scene.views()[0]
+            view.clear_snap_indicator()
+            view.last_trace_geom = None
+        
         self.scene.clear()
+        # ▲▲▲ ここまで修正 ▲▲▲
 
         self.grid_items, self.compass_items, self.calculation_items, self.title_items, self.pointer_items, self.annotation_items = [], [], [], [], [], []
         self.in_area_cells_outline, self.temp_splitting_line_item, self.fixed_split_line_items = None, None, []
@@ -252,6 +375,7 @@ class MapRenderer:
         self.project.title_is_displayed = False
         self.draw_grid()
 
+    # ... (以降のメソッドは変更なし) ...
     def redraw_all_layers(self):
         for layer in self.project.layers:
             for item in layer.get('graphics_items', []):
@@ -429,12 +553,31 @@ class MapRenderer:
         
         self.compass_items.append(group)
 
-    def draw_splitting_line(self, points, current_mouse_pos=None):
+    def draw_splitting_line(self, points, current_mouse_pos=None, trace_points=None):
         self.clear_temporary_splitting_line()
         if not points: return
         path = QPainterPath(points[0])
-        for point in points[1:]: path.lineTo(point)
-        if current_mouse_pos: path.lineTo(current_mouse_pos)
+        for point in points[1:]:
+            path.lineTo(point)
+
+        # トレースプレビューの描画
+        if trace_points:
+            pen = QPen(QColor("cyan"), 3, Qt.PenStyle.SolidLine)
+            pen.setCosmetic(True)
+            trace_path = QPainterPath(points[-1])
+            for p in trace_points:
+                trace_path.lineTo(p)
+            self.trace_preview_item = self.scene.addPath(trace_path, pen)
+            self.trace_preview_item.setZValue(self.Z_OVERLAYS_BASE + 52)
+            
+            # 最終的なプレビューライン
+            if current_mouse_pos:
+                path.lineTo(trace_points[-1])
+                # path.lineTo(current_mouse_pos) # トレース中はマウス位置への線は不要
+
+        elif current_mouse_pos:
+            path.lineTo(current_mouse_pos)
+            
         pen = QPen(QColor("magenta"), 2, Qt.PenStyle.DashLine)
         pen.setCosmetic(True)
         self.temp_splitting_line_item = self.scene.addPath(path, pen)
@@ -443,7 +586,10 @@ class MapRenderer:
     def clear_temporary_splitting_line(self):
         if self.temp_splitting_line_item and self.temp_splitting_line_item.scene():
             self.scene.removeItem(self.temp_splitting_line_item)
+        if self.trace_preview_item and self.trace_preview_item.scene():
+            self.scene.removeItem(self.trace_preview_item)
         self.temp_splitting_line_item = None
+        self.trace_preview_item = None
 
     def draw_split_lines(self):
         for item in self.fixed_split_line_items:
@@ -515,15 +661,10 @@ class MapRenderer:
     def draw_landing_pointer(self, landing_cell, area_index, is_default_single_mode=False):
         row, col = landing_cell
         
-        # --- ▼▼▼ 修正箇所 ▼▼▼ ---
-        # PDF出力時と画面表示時でポインターのサイズを変更する
         if self.for_pdf:
-            # PDF出力時は、計算対象セルのドットと同じサイズにする
             point_size = self.project.cell_size_on_screen * 0.15
         else:
-            # 画面表示時は、視認性の良い大きいサイズにする
             point_size = self.project.cell_size_on_screen * 0.5
-        # --- ▲▲▲ 修正箇所ここまで ▲▲▲
 
         center_x = self.grid_offset_x + col * self.project.cell_size_on_screen + self.project.cell_size_on_screen / 2
         center_y = self.grid_offset_y + row * self.project.cell_size_on_screen + self.project.cell_size_on_screen / 2
