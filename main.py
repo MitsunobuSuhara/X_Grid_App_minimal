@@ -1,5 +1,3 @@
-# --- START OF FILE main.py ---
-
 import sys
 import os
 import fiona
@@ -9,6 +7,8 @@ import re
 from shapely.geometry import shape, LineString
 import io
 from PyPDF2 import PdfWriter
+import openpyxl
+from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
 
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QPushButton, QFileDialog, QMessageBox, QWidget,
@@ -19,11 +19,12 @@ from PyQt6.QtCore import Qt, QRectF, QMarginsF, QPointF, QSize, QPoint, QSizeF, 
 from PyQt6.QtGui import QFont, QColor, QPainter, QPageLayout, QPageSize, QPdfWriter, QPen
 from PyQt6.QtPrintSupport import QPrinter
 
-from app_state import AppState 
+from app_state import AppState
 from project import Project
 from renderer import MapRenderer
 from calculator import Calculator
 from ui_components import LayerSelectionDialog, DroppableListWidget, MyGraphicsView, TextAnnotationDialog
+from report_generator import ReportGenerator # NEW: ReportGeneratorをインポート
 
 class X_Grid(QMainWindow):
     def __init__(self):
@@ -33,10 +34,10 @@ class X_Grid(QMainWindow):
         self.project = Project()
         self.scene = QGraphicsScene(self)
         self.renderer = MapRenderer(self.scene, self.project)
-        # 修正箇所: calculatorにrendererインスタンスを正しく渡す
         self.calculator = Calculator(self.project, self.renderer)
         self.project.calculator = self.calculator
         self.previous_app_state = AppState.IDLE
+        self.report_generator = ReportGenerator() # NEW: インスタンスを作成
         self.init_ui()
         self.renderer.draw_grid()
         self._update_ui_for_state(AppState.IDLE)
@@ -160,6 +161,7 @@ class X_Grid(QMainWindow):
         self.subtitle_input.setMinimumWidth(350)
         self.subtitle_input.setPlaceholderText("例：〇〇〇林小班、〇〇伐区")
         self.update_title_button = QPushButton("見出し表示")
+        self.export_excel_button = QPushButton("Excel出力(総括表)")
         self.export_button = QPushButton("PDFエクスポート")
         self.display_mode_combo = QComboBox()
         
@@ -175,6 +177,7 @@ class X_Grid(QMainWindow):
         action_panel.addWidget(self.area_label)
 
         action_panel.addWidget(self.display_mode_combo)
+        action_panel.addWidget(self.export_excel_button)
         action_panel.addWidget(self.export_button)
         right_panel_layout.addLayout(action_panel)
         
@@ -236,6 +239,7 @@ class X_Grid(QMainWindow):
         self.trace_checkbox.toggled.connect(self._on_trace_toggled)
 
         self.calculate_button.clicked.connect(self.run_calculation_and_draw); 
+        self.export_excel_button.clicked.connect(self.export_summary_to_excel)
         self.export_button.clicked.connect(self.export_results); self.update_title_button.clicked.connect(self.update_title_display); self.subtitle_input.returnPressed.connect(self.update_title_display); self.view.sceneClicked.connect(self.on_scene_clicked); self.view.sceneRightClicked.connect(self.on_scene_right_clicked); self.display_mode_combo.currentIndexChanged.connect(self.on_display_mode_changed)
         
         self.add_annotation_button.clicked.connect(self.start_add_text)
@@ -282,6 +286,7 @@ class X_Grid(QMainWindow):
 
         self.calculate_button.setEnabled(False)
         self.export_button.setEnabled(False)
+        self.export_excel_button.setVisible(False)
         self.display_mode_combo.setVisible(False)
         self.view.viewport().setCursor(Qt.CursorShape.ArrowCursor)
         
@@ -335,6 +340,9 @@ class X_Grid(QMainWindow):
             self.export_button.setEnabled(self.project.title_is_displayed)
             if self.project.is_split_mode and len(self.project.sub_area_data) > 1:
                 self.display_mode_combo.setVisible(True)
+                is_split_summary = self.project.display_mode == 'summary'
+                self.export_excel_button.setVisible(is_split_summary)
+                self.export_excel_button.setEnabled(self.project.title_is_displayed and is_split_summary)
         
         self.update_area_display()
 
@@ -605,19 +613,15 @@ class X_Grid(QMainWindow):
                 self._update_ui_for_state(AppState.DRAWING_SPLIT_LINE)
 
     def _handle_backspace_press(self):
-        """Backspaceキーが押されたときの処理"""
         if self.project.app_state == AppState.DRAWING_SPLIT_LINE:
             if self.project.current_split_line_points:
                 self.project.current_split_line_points.pop()
-                # 最後のトレースジオメトリもリセットする
                 if self.view:
                     self.view.last_trace_geom = None
                 
-                # QPointをQPointFに変換し、さらにシーン座標に変換する
                 view_pos = self.view.mapFromGlobal(self.cursor().pos())
                 scene_pos = self.view.mapToScene(view_pos)
                 
-                # プレビューを更新
                 self.renderer.draw_splitting_line(self.project.current_split_line_points, scene_pos)
 
     def on_display_mode_changed(self, index):
@@ -626,6 +630,7 @@ class X_Grid(QMainWindow):
         if self.project.display_mode != mode: 
             self.project.display_mode = mode
             self.renderer.full_redraw()
+            self._update_ui_for_state(AppState.RESULTS_DISPLAYED)
             self.view.auto_fit_view()
 
     def prompt_add_layer(self):
@@ -810,6 +815,8 @@ class X_Grid(QMainWindow):
         self.project.title_is_displayed = True
         self.renderer.full_redraw()
         self.export_button.setEnabled(self.project.title_is_displayed)
+        is_split_summary = self.project.is_split_mode and self.project.display_mode == 'summary'
+        self.export_excel_button.setEnabled(self.project.title_is_displayed and is_split_summary)
     
     def run_calculation_and_draw(self):
         self._update_ui_for_state(AppState.CALCULATION_RUNNING); QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
@@ -841,6 +848,164 @@ class X_Grid(QMainWindow):
         finally: 
             QApplication.restoreOverrideCursor()
             self._update_ui_for_state(AppState.RESULTS_DISPLAYED)
+
+    def export_summary_to_excel(self):
+        if not (self.project.is_split_mode and self.project.display_mode == 'summary'):
+            QMessageBox.warning(self, "エクスポート不可", "この機能は、区域分割モードの総括表表示時のみ利用できます。")
+            return
+        if not self.project.title_is_displayed:
+            QMessageBox.warning(self, "入力エラー", "見出しが入力・表示されていません。\n入力して「見出し表示」ボタンを押してから、再度エクスポートしてください。")
+            return
+        if not self.project.calculation_data or not self.project.sub_area_data:
+            QMessageBox.warning(self, "エラー", "エクスポートするデータがありません。")
+            return
+
+        subtitle = self.subtitle_input.text().strip()
+        default_filename = f"X-Grid_{subtitle}_総括.xlsx"
+        file_path, _ = QFileDialog.getSaveFileName(self, "総括表をExcelにエクスポート", default_filename, "Excel Workbook (*.xlsx)")
+        if not file_path:
+            return
+
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            self._create_detailed_excel_summary(file_path)
+            QMessageBox.information(self, "成功", f"総括表をExcelファイルとして保存しました:\n{file_path}")
+        except Exception as e:
+            QMessageBox.critical(self, "エクスポートエラー", f"Excelファイルの作成中にエラーが発生しました:\n{e}")
+        finally:
+            QApplication.restoreOverrideCursor()
+
+    # MODIFIED: This method now uses the ReportGenerator
+    def _create_detailed_excel_summary(self, file_path):
+        """
+        ReportGeneratorから取得したデータを用いて、
+        アプリケーションの表示内容に忠実なExcelファイルを生成する
+        """
+        report_data = self.report_generator.generate_summary_data(self.project)
+        if not report_data:
+            raise ValueError("レポートデータの生成に失敗しました。")
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "平均集材距離計算表 (総括)"
+
+        # --- Styles ---
+        fonts = {
+            'title': Font(name='游ゴシック', size=20, bold=True),
+            'section_header': Font(name='游ゴシック', size=14, bold=True),
+            'data': Font(name='游ゴシック', size=12),
+            'note': Font(name='游ゴシック', size=11, italic=True),
+            'table_header': Font(name='游ゴシック', size=11, bold=True),
+            'final_result': Font(name='游ゴシック', size=14, bold=True)
+        }
+        align = {
+            'left': Alignment(horizontal='left', vertical='center', wrap_text=True),
+            'center': Alignment(horizontal='center', vertical='center', wrap_text=True),
+            'right': Alignment(horizontal='right', vertical='center', wrap_text=True)
+        }
+        fills = {
+            'final': PatternFill(start_color="FFFFCC", end_color="FFFFCC", fill_type="solid"),
+            'header': PatternFill(start_color="F0F0F0", end_color="F0F0F0", fill_type="solid")
+        }
+        border = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
+        
+        ws.column_dimensions['A'].width = 100
+        current_row = 1
+
+        for block in report_data:
+            block_type = block.get('type')
+            
+            if block_type == 'spacer':
+                current_row += 1
+                continue
+            
+            ws.merge_cells(f'A{current_row}:G{current_row}')
+            cell = ws[f'A{current_row}']
+            
+            if block_type == 'title':
+                cell.value = block['text']
+                cell.font = fonts['title']
+                cell.alignment = align['left']
+                ws.row_dimensions[current_row].height = 40
+            
+            elif block_type == 'section_header':
+                cell.value = block['text']
+                cell.font = fonts['section_header']
+                cell.alignment = align['left']
+                ws.row_dimensions[current_row].height = 25
+            
+            elif block_type in ['formula_line', 'calculation_line']:
+                cell.value = block['text']
+                cell.font = fonts['data']
+                cell.alignment = align['left']
+            
+            elif block_type == 'note':
+                cell.value = block['text']
+                cell.font = fonts['note']
+                cell.alignment = align['left']
+
+            elif block_type == 'complex_formula_line':
+                # Excelでは改行で表現
+                full_text = f"{block['formula_part1']}{block['result_part1']}\n{block['result_part2']}"
+                cell.value = full_text
+                cell.font = fonts['data']
+                cell.alignment = align['left']
+                ws.row_dimensions[current_row].height = 40 # 2行分
+            
+            elif block_type == 'final_calculation':
+                full_text = f"{block['prefix']} = {block['line1']}\n= {block['line2']}\n≒ {block['line3']}"
+                cell.value = full_text
+                cell.font = fonts['data']
+                cell.alignment = align['left']
+                ws.row_dimensions[current_row].height = 60 # 3行分
+
+            elif block_type == 'final_result':
+                cell.value = block['text']
+                cell.font = fonts['final_result']
+                cell.alignment = align['right']
+                cell.fill = fills['final']
+                ws.row_dimensions[current_row].height = 30
+            
+            elif block_type == 'table':
+                ws.unmerge_cells(f'A{current_row}:G{current_row}')
+                # Setup table columns
+                ws.column_dimensions['B'].width = 20
+                ws.column_dimensions['C'].width = 15
+                ws.column_dimensions['D'].width = 15
+                ws.column_dimensions['E'].width = 25
+                
+                # Headers
+                for i, h_text in enumerate(block['headers']):
+                    h_cell = ws.cell(row=current_row, column=i + 2, value=h_text)
+                    h_cell.font = fonts['table_header']
+                    h_cell.alignment = align['center']
+                    h_cell.border = border
+                    h_cell.fill = fills['header']
+                current_row += 1
+                
+                # Rows
+                for row_data in block['rows']:
+                    for j, d_text in enumerate(row_data):
+                        d_cell = ws.cell(row=current_row, column=j + 2, value=d_text)
+                        d_cell.font = fonts['data']
+                        d_cell.border = border
+                        d_cell.alignment = align['right'] if j > 0 else align['left']
+                    current_row += 1
+                
+                # Total Row
+                for j, d_text in enumerate(block['total_row']):
+                    t_cell = ws.cell(row=current_row, column=j + 2, value=d_text)
+                    t_cell.font = fonts['table_header']
+                    t_cell.border = border
+                    t_cell.fill = fills['header']
+                    t_cell.alignment = align['right'] if j > 0 else align['center']
+                # Continue loop from the next row after table
+                current_row += 1
+                continue # Skip the final current_row += 1
+
+            current_row += 1
+
+        wb.save(file_path)
 
     def export_results(self):
         if not self.project.title_is_displayed:
@@ -1059,7 +1224,6 @@ class X_Grid(QMainWindow):
         
         temp_renderer.full_redraw(hide_pointers=False, for_pdf=True)
         
-        # --- PDF出力精度の向上 ---
         source_grid_rect = temp_renderer.get_grid_rect()
         if not source_grid_rect.isValid():
              raise Exception(f"ページ '{display_mode}' のグリッド描画範囲が無効です。")

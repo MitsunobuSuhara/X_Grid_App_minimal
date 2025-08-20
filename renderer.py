@@ -1,5 +1,3 @@
-# --- START OF FILE renderer.py ---
-
 import math
 from PyQt6.QtCore import Qt, QRectF, QPointF, pyqtSignal
 from PyQt6.QtGui import (
@@ -10,6 +8,7 @@ from shapely.geometry import box, shape, Polygon, MultiPolygon, LineString, Mult
 from shapely.ops import unary_union, nearest_points
 
 from utils import DEFAULT_STYLE_INFO, _parse_any_color_string
+from report_generator import ReportGenerator # NEW: ReportGeneratorをインポート
 
 
 class DraggableLabelItem(QGraphicsTextItem):
@@ -25,8 +24,6 @@ class DraggableLabelItem(QGraphicsTextItem):
         )
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setData(0, "draggable_label")
-
-    # マウスイベントはすべて MyGraphicsView で処理するため、ここではオーバーライドしない
 
     def paint(self, painter, option, widget):
         if self.isSelected():
@@ -55,6 +52,7 @@ class MapRenderer:
         self.trace_preview_item = None
 
         self._setup_drawing_styles()
+        self.report_generator = ReportGenerator() # NEW: インスタンスを作成
 
     def scene_to_world(self, scene_pos):
         params = self._get_transform_parameters()
@@ -297,16 +295,13 @@ class MapRenderer:
         self.draw_summary_page_contents(for_pdf=for_pdf)
 
     def clear_all_graphics_items(self):
-        # シーンからすべてのアイテムを削除（テキストアイテムの参照は保持される）
         self.scene.clear()
         
-        # view の状態をリセット
         if not self.for_pdf and self.scene.views():
             view = self.scene.views()[0]
             view.clear_snap_indicator()
             view.last_trace_geom = None
 
-        # すべての内部リストをクリア
         self.grid_items.clear()
         self.compass_items.clear()
         self.calculation_items.clear()
@@ -481,10 +476,11 @@ class MapRenderer:
         if for_summary_pdf:
             self.fonts = {
                 'title': QFont("游ゴシック", 20, QFont.Weight.Bold), 
-                'result': QFont("游ゴシック", 16, QFont.Weight.Bold), 
-                'header': QFont("游ゴシック", 10, QFont.Weight.Bold), 
+                'result': QFont("游ゴシック", 16, QFont.Weight.Bold),
+                'section_header': QFont("游ゴシック", 16, QFont.Weight.Bold),
                 'data': QFont("游ゴシック", 13), 
                 'data_bold': QFont("游ゴシック", 13, QFont.Weight.Bold),
+                'note': QFont("游ゴシック", 12, QFont.Weight.Normal),
                 'total': QFont("游ゴシック", 10, QFont.Weight.Bold), 
                 'scale': QFont("游ゴシック", 10), 
                 'highlight': QFont("游ゴシック", 10, QFont.Weight.Bold)
@@ -492,10 +488,12 @@ class MapRenderer:
         else:
             self.fonts = {
                 'title': QFont("游ゴシック", 16, QFont.Weight.Bold), 
-                'result': QFont("游ゴシック", 12, QFont.Weight.Bold), 
+                'result': QFont("游ゴシック", 12, QFont.Weight.Bold),
+                'section_header': QFont("游ゴシック", 12, QFont.Weight.Bold),
                 'header': QFont("游ゴシック", 9, QFont.Weight.Bold), 
                 'data': QFont("游ゴシック", 9), 
                 'data_bold': QFont("游ゴシック", 9, QFont.Weight.Bold),
+                'note': QFont("游ゴシック", 9, QFont.Weight.Normal),
                 'total': QFont("游ゴシック", 9, QFont.Weight.Bold), 
                 'scale': QFont("游ゴシック", 10), 
                 'highlight': QFont("游ゴシック", 9, QFont.Weight.Bold)
@@ -549,7 +547,6 @@ class MapRenderer:
         for point in points[1:]:
             path.lineTo(point)
 
-        # トレースプレビューの描画
         if trace_points:
             pen = QPen(QColor("cyan"), 3, Qt.PenStyle.SolidLine)
             pen.setCosmetic(True)
@@ -653,10 +650,9 @@ class MapRenderer:
         center_x = self.grid_offset_x + col * self.project.cell_size_on_screen + self.project.cell_size_on_screen / 2
         center_y = self.grid_offset_y + row * self.project.cell_size_on_screen + self.project.cell_size_on_screen / 2
         
-        color = QColor("red") # デフォルトは赤
-        if not self.for_pdf: # PDF出力時は常に赤
+        color = QColor("red")
+        if not self.for_pdf:
             if not is_default_single_mode and area_index is not None:
-                # PDF出力でなく、分割モードの場合のみ色分け
                 colors = [QColor("blue"), QColor("green"), QColor("purple"), QColor(255, 165, 0), QColor(139, 69, 19)]
                 color = colors[area_index % len(colors)]
             
@@ -951,16 +947,16 @@ class MapRenderer:
         self.calculation_items.append(self._add_aligned_text(k_value_text, self.fonts['data'], self.colors['dark'], QPointF(legend_x + self.project.cell_size_on_screen/2, legend_y + self.project.cell_size_on_screen + 20), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignHCenter))
         self.calculation_items.append(self._add_aligned_text("縮尺: 1/5000", self.fonts['scale'], self.colors['dark'], QPointF(legend_x + self.project.cell_size_on_screen + 65, legend_y + 4), Qt.AlignmentFlag.AlignLeft))
 
+    # MODIFIED: This entire method is replaced to use the ReportGenerator
     def draw_summary_page_contents(self, for_pdf=False):
         if not self.project.calculation_data:
             return
 
-        subtitle = self.project.calculation_data.get('subtitle_text', '')
-        summary_result = self.project.calculation_data.get('summary_result')
-        sub_area_data = self.project.sub_area_data
+        report_data = self.report_generator.generate_summary_data(self.project)
+        if not report_data:
+            return
 
         items = []
-        
         x_start = 0 if for_pdf else 20
         y_start = 0 if for_pdf else 20
         
@@ -970,189 +966,114 @@ class MapRenderer:
             y_start = self.grid_offset_y + 50
 
         y_pos = y_start
-        
         self._setup_drawing_styles(for_summary_pdf=True)
-        line_height_large, line_height_normal, line_height_small = 45, 35, 30
-        font_bold = self.fonts['data_bold']
-        metrics_bold = QFontMetrics(font_bold)
-        font_data = self.fonts['data']
-        metrics_data = QFontMetrics(font_data)
-
-        title_text = f"{subtitle} 平均集材距離計算表 (総括)"
-        title_item = self._add_aligned_text(title_text, self.fonts['title'], self.colors['dark'], QPointF(x_start, y_pos), Qt.AlignmentFlag.AlignLeft)
-        items.append(title_item)
-        y_pos += line_height_large
-        y_pos += 20 # タイトルと次の行の間のスペース
-
-        header_item = self._add_aligned_text("【各区域の計算結果】", self.fonts['result'], self.colors['dark'], QPointF(x_start, y_pos), Qt.AlignmentFlag.AlignLeft)
-        items.append(header_item)
-        y_pos += line_height_normal
-
-        has_l_note = False
-        for area in sub_area_data:
-            res = area.get('result')
-            if not res: continue
-
-            formula_left = f"{area['name']}: 平均集材距離 = ((⑨+⑦)÷⑧×K)"
-            if res['calc_mode'] == 'external':
-                formula_left += " + L"
-                has_l_note = True
-            
-            formula_right_base = f" = (({res['total_product_v']}+{res['total_product_h']})÷{res['total_degree']}×{self.project.k_value:.0f})"
-            if res['calc_mode'] == 'external':
-                formula_right_base += f" + {res['additional_distance']:.0f}"
-            
-            full_formula_str = f"{formula_left}{formula_right_base}"
-            full_formula_item = self._add_aligned_text(full_formula_str, font_data, self.colors['normal'], QPointF(x_start + 20, y_pos), Qt.AlignmentFlag.AlignLeft)
-            items.append(full_formula_item)
-
-            final_dist = res['final_distance']
-            result_align_x = x_start + 20 + metrics_data.horizontalAdvance(full_formula_str)
-
-            if final_dist % 1 == 0:
-                result_str = f" = {int(final_dist)} m"
-                items.append(self._add_aligned_text(result_str, font_data, self.colors['normal'], QPointF(result_align_x, y_pos), Qt.AlignmentFlag.AlignLeft))
-                y_pos += line_height_small
-            else:
-                result_str_1 = f" = {final_dist:.1f} m"
-                items.append(self._add_aligned_text(result_str_1, font_data, self.colors['normal'], QPointF(result_align_x, y_pos), Qt.AlignmentFlag.AlignLeft))
-                
-                result_str_2 = f" ≒ {int(round(final_dist))} m"
-                items.append(self._add_aligned_text(result_str_2, font_data, self.colors['normal'], QPointF(result_align_x, y_pos + metrics_data.height()), Qt.AlignmentFlag.AlignLeft))
-                y_pos += metrics_data.height() + line_height_small
         
-        if has_l_note:
-            note_item = self._add_aligned_text("※ L: 集材区域入口から土場までの水平距離", font_data, self.colors['normal'], QPointF(x_start + 40, y_pos), Qt.AlignmentFlag.AlignLeft)
-            items.append(note_item)
-            y_pos += line_height_small
+        # --- Metrics for layout ---
+        metrics = {
+            'title': QFontMetrics(self.fonts['title']),
+            'result': QFontMetrics(self.fonts['result']),
+            'section_header': QFontMetrics(self.fonts['section_header']),
+            'data': QFontMetrics(self.fonts['data']),
+            'data_bold': QFontMetrics(self.fonts['data_bold']),
+            'note': QFontMetrics(self.fonts['note']),
+        }
+        line_heights = {
+            'title': metrics['title'].height() + 15,
+            'section_header': metrics['section_header'].height() + 10,
+            'default': metrics['data'].height() + 8
+        }
 
-        y_pos += 20
-        header_item = self._add_aligned_text("【面積按分による計算】", self.fonts['result'], self.colors['dark'], QPointF(x_start, y_pos), Qt.AlignmentFlag.AlignLeft)
-        items.append(header_item)
-        y_pos += line_height_small
-
-        note_item = self._add_aligned_text("※ 区域面積は、集材区域に含まれるセルの数から算出しています。", font_data, self.colors['normal'], QPointF(x_start + 20, y_pos), Qt.AlignmentFlag.AlignLeft)
-        items.append(note_item)
-        y_pos += line_height_normal
-
-        sub_results = [a['result'] for a in sub_area_data if a.get('result')]
-        areas_ha = [res['total_degree'] * (self.project.k_value**2) / 10000 for res in sub_results]
-        total_ha = sum(areas_ha)
-
-        if total_ha > 0:
-            for i, res in enumerate(sub_results):
-                area_ha = areas_ha[i]
-                area_name = sub_area_data[i]['name']
-                cell_count = res['total_degree']
-                cell_area_m2 = self.project.k_value**2
-                
-                area_calc_str = f"・{area_name} 面積: ({cell_count}セル × {int(cell_area_m2)}㎡) ÷ 10000 = {area_ha:.2f} ha"
-                item = self._add_aligned_text(area_calc_str, font_data, self.colors['normal'], QPointF(x_start + 20, y_pos), Qt.AlignmentFlag.AlignLeft)
+        for block in report_data:
+            block_type = block.get('type')
+            
+            if block_type == 'title':
+                item = self._add_aligned_text(block['text'], self.fonts['title'], self.colors['dark'], QPointF(x_start, y_pos), Qt.AlignmentFlag.AlignLeft)
                 items.append(item)
-                y_pos += line_height_small
+                y_pos += line_heights['title']
             
-            area_ha_parts = [f"{ha:.2f} ha" for ha in areas_ha]
-            total_area_str = f"・全体面積: {' + '.join(area_ha_parts)} = {total_ha:.2f} ha"
-            item = self._add_aligned_text(total_area_str, font_data, self.colors['normal'], QPointF(x_start + 20, y_pos), Qt.AlignmentFlag.AlignLeft)
-            items.append(item)
-            y_pos += line_height_small
-            
-            y_pos += 10
-
-            for i, res in enumerate(sub_results):
-                area_ha = areas_ha[i]
-                ratio = area_ha / total_ha
-                area_name = sub_area_data[i]['name']
-                calc_str = f"{area_name} 面積割合 = {area_ha:.2f} ha ÷ {total_ha:.2f} ha = {ratio:.3f}"
-                item = self._add_aligned_text(calc_str, font_data, self.colors['normal'], QPointF(x_start + 20, y_pos), Qt.AlignmentFlag.AlignLeft)
+            elif block_type == 'section_header':
+                item = self._add_aligned_text(block['text'], self.fonts['section_header'], self.colors['dark'], QPointF(x_start, y_pos), Qt.AlignmentFlag.AlignLeft)
                 items.append(item)
-                y_pos += line_height_small
-        y_pos += 10
+                y_pos += line_heights['section_header']
 
-        table_x, table_y = x_start + 20, y_pos
-        col_widths = [120, 140, 140, 180]
-        row_height = 35
-        pen = QPen(self.colors['dark'])
+            elif block_type == 'spacer':
+                y_pos += block['size']
 
-        headers = ["区域", "面積 (ha)", "面積割合", "平均集材距離 (m)"]
-        for i, h_text in enumerate(headers):
-            x = table_x + sum(col_widths[:i])
-            items.append(self.scene.addRect(x, table_y, col_widths[i], row_height, pen, QBrush(QColor("#F0F0F0"))))
-            items.append(self._add_aligned_text(h_text, font_bold, self.colors['dark'], QPointF(x + col_widths[i]/2, table_y + row_height/2)))
-        
-        y_pos = table_y + row_height
-        
-        if total_ha > 0:
-            for i, res in enumerate(sub_results):
-                area_ha = areas_ha[i]
-                ratio = area_ha / total_ha
-                row_data = [sub_area_data[i]['name'], f"{area_ha:.2f}", f"{ratio:.3f}", f"{int(round(res['final_distance']))}"]
-                for j, d_text in enumerate(row_data):
+            elif block_type in ['formula_line', 'calculation_line', 'note']:
+                font = self.fonts['note'] if block_type == 'note' else self.fonts['data']
+                offset = 40 if block_type == 'note' else 20
+                item = self._add_aligned_text(block['text'], font, self.colors['normal'], QPointF(x_start + offset, y_pos), Qt.AlignmentFlag.AlignLeft)
+                items.append(item)
+                y_pos += line_heights['default']
+
+            elif block_type == 'complex_formula_line':
+                font = self.fonts['data']
+                item1 = self._add_aligned_text(block['formula_part1'], font, self.colors['normal'], QPointF(x_start + 20, y_pos), Qt.AlignmentFlag.AlignLeft)
+                items.append(item1)
+                
+                align_x = x_start + 20 + metrics['data'].horizontalAdvance(block['formula_part1'])
+                item2 = self._add_aligned_text(block['result_part1'], font, self.colors['normal'], QPointF(align_x, y_pos), Qt.AlignmentFlag.AlignLeft)
+                items.append(item2)
+                item3 = self._add_aligned_text(block['result_part2'], font, self.colors['normal'], QPointF(align_x, y_pos + metrics['data'].height()), Qt.AlignmentFlag.AlignLeft)
+                items.append(item3)
+                y_pos += metrics['data'].height() + line_heights['default']
+            
+            elif block_type == 'table':
+                table_x, table_y = x_start + 20, y_pos
+                col_widths = [120, 140, 140, 180]
+                row_height = 35
+                pen = QPen(self.colors['dark'])
+
+                for i, h_text in enumerate(block['headers']):
+                    x = table_x + sum(col_widths[:i])
+                    items.append(self.scene.addRect(x, table_y, col_widths[i], row_height, pen, QBrush(QColor("#F0F0F0"))))
+                    items.append(self._add_aligned_text(h_text, self.fonts['data_bold'], self.colors['dark'], QPointF(x + col_widths[i]/2, table_y + row_height/2)))
+                
+                y_pos = table_y + row_height
+                
+                for row_data in block['rows']:
+                    for j, d_text in enumerate(row_data):
+                        x = table_x + sum(col_widths[:j])
+                        items.append(self.scene.addRect(x, y_pos, col_widths[j], row_height, pen))
+                        items.append(self._add_aligned_text(d_text, self.fonts['data'], self.colors['normal'], QPointF(x + col_widths[j]/2, y_pos + row_height/2)))
+                    y_pos += row_height
+                
+                for j, d_text in enumerate(block['total_row']):
                     x = table_x + sum(col_widths[:j])
-                    items.append(self.scene.addRect(x, y_pos, col_widths[j], row_height, pen))
-                    items.append(self._add_aligned_text(d_text, font_data, self.colors['normal'], QPointF(x + col_widths[j]/2, y_pos + row_height/2)))
+                    items.append(self.scene.addRect(x, y_pos, col_widths[j], row_height, pen, QBrush(QColor("#F0F0F0"))))
+                    items.append(self._add_aligned_text(d_text, self.fonts['data_bold'], self.colors['dark'], QPointF(x + col_widths[j]/2, y_pos + row_height/2)))
                 y_pos += row_height
 
-        total_ratio_str = "1.000" if total_ha > 0 else "0.000"
-        total_row_data = ["合計", f"{total_ha:.2f}", total_ratio_str, ""]
-        for j, d_text in enumerate(total_row_data):
-            x = table_x + sum(col_widths[:j])
-            items.append(self.scene.addRect(x, y_pos, col_widths[j], row_height, pen, QBrush(QColor("#F0F0F0"))))
-            items.append(self._add_aligned_text(d_text, font_bold, self.colors['dark'], QPointF(x + col_widths[j]/2, y_pos + row_height/2)))
-        y_pos += row_height + line_height_normal
+            elif block_type == 'final_calculation':
+                prefix_width = metrics['data'].horizontalAdvance(block['prefix'])
+                align_x = x_start + 20 + prefix_width + 20
 
-        if total_ha > 0 and summary_result:
-            weighted_sum_parts = []
-            weighted_sum_values = []
-            for i, res in enumerate(sub_results):
-                if total_ha > 0:
-                    ratio = (areas_ha[i] / total_ha)
-                    part_str = f"({int(round(res['final_distance']))}m × {ratio:.3f})"
-                    weighted_sum_parts.append(part_str)
-                    weighted_sum_values.append(res['final_distance'] * ratio)
+                items.append(self._add_aligned_text(block['prefix'], self.fonts['data'], self.colors['normal'], QPointF(x_start + 20, y_pos), Qt.AlignmentFlag.AlignLeft))
+                items.append(self._add_aligned_text("=", self.fonts['data'], self.colors['normal'], QPointF(align_x, y_pos), Qt.AlignmentFlag.AlignLeft))
+                items.append(self._add_aligned_text(block['line1'], self.fonts['data'], self.colors['normal'], QPointF(align_x + metrics['data'].horizontalAdvance("= "), y_pos), Qt.AlignmentFlag.AlignLeft))
+                y_pos += metrics['data'].height() + 5
 
-            line1_prefix = "平均集材距離"
-            line1_formula = ' + '.join(weighted_sum_parts)
-            
-            final_dist_from_formula = sum(weighted_sum_values)
-            line2_result = f"{final_dist_from_formula:.1f} m"
-            line3_rounded = f"{int(round(final_dist_from_formula))} m"
+                items.append(self._add_aligned_text("=", self.fonts['data'], self.colors['normal'], QPointF(align_x, y_pos), Qt.AlignmentFlag.AlignLeft))
+                items.append(self._add_aligned_text(block['line2'], self.fonts['data'], self.colors['normal'], QPointF(align_x + metrics['data'].horizontalAdvance("= "), y_pos), Qt.AlignmentFlag.AlignLeft))
+                y_pos += metrics['data'].height() + 5
+                
+                equal_width = metrics['data'].horizontalAdvance("=")
+                approx_width = metrics['data'].horizontalAdvance("≒")
+                offset = (equal_width - approx_width) / 2
+                items.append(self._add_aligned_text("≒", self.fonts['data'], self.colors['normal'], QPointF(align_x + offset, y_pos), Qt.AlignmentFlag.AlignLeft))
+                items.append(self._add_aligned_text(block['line3'], self.fonts['data'], self.colors['normal'], QPointF(align_x + metrics['data'].horizontalAdvance("= "), y_pos), Qt.AlignmentFlag.AlignLeft))
+                y_pos += metrics['data'].height()
 
-            prefix_width = metrics_data.horizontalAdvance(line1_prefix)
-            align_x = x_start + 20 + prefix_width + 20
-
-            items.append(self._add_aligned_text(line1_prefix, font_data, self.colors['normal'], QPointF(x_start + 20, y_pos), Qt.AlignmentFlag.AlignLeft))
-            items.append(self._add_aligned_text("=", font_data, self.colors['normal'], QPointF(align_x, y_pos), Qt.AlignmentFlag.AlignLeft))
-            items.append(self._add_aligned_text(line1_formula, font_data, self.colors['normal'], QPointF(align_x + metrics_data.horizontalAdvance("= "), y_pos), Qt.AlignmentFlag.AlignLeft))
-            
-            y_pos += metrics_data.height() + 5
-
-            items.append(self._add_aligned_text("=", font_data, self.colors['normal'], QPointF(align_x, y_pos), Qt.AlignmentFlag.AlignLeft))
-            items.append(self._add_aligned_text(line2_result, font_data, self.colors['normal'], QPointF(align_x + metrics_data.horizontalAdvance("= "), y_pos), Qt.AlignmentFlag.AlignLeft))
-            y_pos += metrics_data.height() + 5
-
-            equal_width = metrics_data.horizontalAdvance("=")
-            approx_width = metrics_data.horizontalAdvance("≒")
-            offset = (equal_width - approx_width) / 2
-            items.append(self._add_aligned_text("≒", font_data, self.colors['normal'], QPointF(align_x + offset, y_pos), Qt.AlignmentFlag.AlignLeft))
-            items.append(self._add_aligned_text(line3_rounded, font_data, self.colors['normal'], QPointF(align_x + metrics_data.horizontalAdvance("= "), y_pos), Qt.AlignmentFlag.AlignLeft))
-            y_pos += metrics_data.height() + line_height_large
-        
-        font = self.fonts['result']
-        color = self.colors['dark']
-        
-        if summary_result:
-            final_dist_to_display = int(round(summary_result['final_distance']))
-            final_result_str = f"平均集材距離 = {final_dist_to_display} m"
-            item1 = self._add_aligned_text(final_result_str, font, color, QPointF(x_start, y_pos), Qt.AlignmentFlag.AlignLeft)
-            items.append(item1)
-            
-            bg_rect = item1.boundingRect()
-            bg_item = self.scene.addRect(bg_rect, QPen(Qt.PenStyle.NoPen), QBrush(QColor(255, 255, 204)))
-            bg_item.setPos(item1.pos())
-            bg_item.setZValue(item1.zValue() - 1)
-            items.append(bg_item)
-
+            elif block_type == 'final_result':
+                item = self._add_aligned_text(block['text'], self.fonts['result'], self.colors['dark'], QPointF(x_start, y_pos), Qt.AlignmentFlag.AlignLeft)
+                items.append(item)
+                
+                bg_rect = item.boundingRect()
+                bg_item = self.scene.addRect(bg_rect, QPen(Qt.PenStyle.NoPen), QBrush(QColor(255, 255, 204)))
+                bg_item.setPos(item.pos())
+                bg_item.setZValue(item.zValue() - 1)
+                items.append(bg_item)
+                
         self.calculation_items.extend(items)
         self._setup_drawing_styles()
 
