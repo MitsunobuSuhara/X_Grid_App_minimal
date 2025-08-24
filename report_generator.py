@@ -1,4 +1,5 @@
 # --- START OF FILE report_generator.py ---
+from decimal import Decimal, ROUND_HALF_UP
 
 class ReportGenerator:
     """
@@ -70,48 +71,37 @@ class ReportGenerator:
         report_blocks.append({'type': 'note', 'text': "※ 区域面積は、集材区域に含まれるセルの数から算出しています。"})
 
         sub_results = [a['result'] for a in sub_area_data if a.get('result')]
-        areas_ha = [res['total_degree'] * (project.k_value**2) / 10000 for res in sub_results]
-        total_ha = sum(areas_ha)
-
-        if total_ha > 0:
-            for i, res in enumerate(sub_results):
-                area_ha = areas_ha[i]
-                area_name = sub_area_data[i]['name']
-                cell_count = res['total_degree']
-                cell_area_m2 = project.k_value**2
-                area_calc_str = f"・{area_name} 面積: ({cell_count}セル × {int(cell_area_m2)}㎡) ÷ 10000 = {area_ha:.2f} ha"
-                report_blocks.append({'type': 'calculation_line', 'text': area_calc_str})
-
-            area_ha_parts = [f"{ha:.2f} ha" for ha in areas_ha]
-            total_area_str = f"・全体面積: {' + '.join(area_ha_parts)} = {total_ha:.2f} ha"
-            report_blocks.append({'type': 'calculation_line', 'text': total_area_str})
-            report_blocks.append({'type': 'spacer', 'size': 10})
-            
-            for i, res in enumerate(sub_results):
-                area_ha = areas_ha[i]
-                ratio = area_ha / total_ha
-                area_name = sub_area_data[i]['name']
-                calc_str = f"{area_name} 面積割合 = {area_ha:.2f} ha ÷ {total_ha:.2f} ha = {ratio:.3f}"
-                report_blocks.append({'type': 'calculation_line', 'text': calc_str})
+        
+        # MODIFIED: 面積計算にDecimalを使用し、小数第3位を四捨五入する
+        quantizer = Decimal('0.01')
+        areas_ha_raw = [res['total_degree'] * (project.k_value**2) / 10000 for res in sub_results]
+        areas_ha_rounded = [
+            Decimal(str(ha)).quantize(quantizer, rounding=ROUND_HALF_UP) for ha in areas_ha_raw
+        ]
+        total_ha_rounded = sum(areas_ha_rounded) if areas_ha_rounded else Decimal('0.00')
 
         report_blocks.append({'type': 'spacer', 'size': 10})
 
         # --- 4. 集計表 ---
-        table_headers = ["区域", "面積 (ha)", "面積割合", "平均集材距離 (m)"]
+        table_headers = ["区域", "セル数", "面積\n(ha)", "面積割合", "平均集材距離\n(m)"]
         table_rows = []
-        if total_ha > 0:
+        total_cells = 0
+        if total_ha_rounded > 0:
             for i, res in enumerate(sub_results):
-                area_ha = areas_ha[i]
-                ratio = area_ha / total_ha
+                area_ha = areas_ha_rounded[i]
+                ratio = area_ha / total_ha_rounded if total_ha_rounded > 0 else Decimal('0.000')
+                cell_count = res['total_degree']
+                total_cells += cell_count
                 table_rows.append([
                     sub_area_data[i]['name'],
-                    f"{area_ha:.2f}",
+                    f"{cell_count}",
+                    f"{area_ha:.2f}", # .2fで末尾の0を保証
                     f"{ratio:.3f}",
                     f"{int(round(res['final_distance']))}"
                 ])
         
-        total_ratio_str = "1.000" if total_ha > 0 else "0.000"
-        table_total_row = ["合計", f"{total_ha:.2f}", total_ratio_str, ""]
+        total_ratio_str = "1.000" if total_ha_rounded > 0 else "0.000"
+        table_total_row = ["合計", f"{total_cells}", f"{total_ha_rounded:.2f}", total_ratio_str, ""]
         
         report_blocks.append({
             'type': 'table',
@@ -122,14 +112,15 @@ class ReportGenerator:
         report_blocks.append({'type': 'spacer', 'size': 20})
 
         # --- 5. 最終計算式 ---
-        if total_ha > 0:
+        if total_ha_rounded > 0:
             weighted_sum_parts = []
             weighted_sum_values = []
             for i, res in enumerate(sub_results):
-                ratio = (areas_ha[i] / total_ha)
+                # MODIFIED: 丸め後の値を使って比率を再計算
+                ratio = areas_ha_rounded[i] / total_ha_rounded
                 part_str = f"({int(round(res['final_distance']))}m × {ratio:.3f})"
                 weighted_sum_parts.append(part_str)
-                weighted_sum_values.append(res['final_distance'] * ratio)
+                weighted_sum_values.append(res['final_distance'] * float(ratio)) # floatに変換して計算
 
             line1_formula = ' + '.join(weighted_sum_parts)
             final_dist_from_formula = sum(weighted_sum_values)

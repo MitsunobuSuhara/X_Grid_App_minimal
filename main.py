@@ -24,7 +24,7 @@ from project import Project
 from renderer import MapRenderer
 from calculator import Calculator
 from ui_components import LayerSelectionDialog, DroppableListWidget, MyGraphicsView, TextAnnotationDialog
-from report_generator import ReportGenerator # NEW: ReportGeneratorをインポート
+from report_generator import ReportGenerator
 
 class X_Grid(QMainWindow):
     def __init__(self):
@@ -37,7 +37,7 @@ class X_Grid(QMainWindow):
         self.calculator = Calculator(self.project, self.renderer)
         self.project.calculator = self.calculator
         self.previous_app_state = AppState.IDLE
-        self.report_generator = ReportGenerator() # NEW: インスタンスを作成
+        self.report_generator = ReportGenerator()
         self.init_ui()
         self.renderer.draw_grid()
         self._update_ui_for_state(AppState.IDLE)
@@ -45,7 +45,7 @@ class X_Grid(QMainWindow):
     def init_ui(self):
         central_widget = QWidget(self)
         self.setCentralWidget(central_widget)
-        top_level_layout = QHBoxLayout(central_widget)
+        self.top_level_layout = QHBoxLayout(central_widget)
         left_panel_widget = QWidget()
         left_panel_widget.setFixedWidth(380)
         left_panel_layout = QVBoxLayout(left_panel_widget)
@@ -157,24 +157,24 @@ class X_Grid(QMainWindow):
         
         action_panel = QHBoxLayout()
         self.calculate_button = QPushButton("計算を実行")
+        self.calculate_button.setStyleSheet("font-size: 11pt; padding: 8px; font-weight: bold; background-color: #cce5ff;")
         self.subtitle_input = QLineEdit()
-        self.subtitle_input.setMinimumWidth(350)
-        self.subtitle_input.setPlaceholderText("例：〇〇〇林小班、〇〇伐区")
-        self.update_title_button = QPushButton("見出し表示")
+        self.subtitle_input.setMinimumWidth(150)
+        self.subtitle_input.setPlaceholderText("例：〇〇〇林小班")
         self.export_excel_button = QPushButton("Excel出力(総括表)")
         self.export_button = QPushButton("PDFエクスポート")
         self.display_mode_combo = QComboBox()
         
         action_panel.addWidget(self.calculate_button)
-        action_panel.addSpacing(20)
+        action_panel.addSpacing(15)
         action_panel.addWidget(QLabel("見出し:"))
         action_panel.addWidget(self.subtitle_input)
-        action_panel.addWidget(self.update_title_button)
-        action_panel.addStretch(1)
+        action_panel.addSpacing(10)
         
         self.area_label = QLabel("面積: - ha")
-        self.area_label.setStyleSheet("font-weight: bold; font-size: 11pt; margin-right: 10px;")
+        self.area_label.setStyleSheet("font-weight: bold; font-size: 10pt; margin-right: 5px;")
         action_panel.addWidget(self.area_label)
+        action_panel.addStretch(1)
 
         action_panel.addWidget(self.display_mode_combo)
         action_panel.addWidget(self.export_excel_button)
@@ -185,13 +185,13 @@ class X_Grid(QMainWindow):
         self.scene.setBackgroundBrush(QColor("#FFFFFF"))
         right_panel_layout.addWidget(self.view)
         
-        top_level_layout.addWidget(left_panel_widget)
-        top_level_layout.addWidget(right_panel_widget, 1)
+        self.top_level_layout.addWidget(left_panel_widget)
+        self.top_level_layout.addWidget(right_panel_widget, 1)
         
         self.setStyleSheet(
             """
             QWidget { background-color: #F0F0F0; color: #000000; } 
-            QPushButton { background-color: #E1E1E1; border: 1px solid #ADADAD; padding: 5px 12px; border-radius: 3px; } 
+            QPushButton { background-color: #E1E1E1; border: 1px solid #ADADAD; padding: 5px 10px; border-radius: 3px; } 
             QPushButton:hover { background-color: #E9E9E9; } 
             QPushButton:pressed { background-color: #D6D6D6; } 
             QPushButton:disabled { background-color: #F5F5F5; color: #ADADAD; border-color: #C1C1C1; } 
@@ -214,7 +214,7 @@ class X_Grid(QMainWindow):
             QComboBox {
                 background-color: #e7f3fe;
                 border: 1px solid #007bff;
-                padding: 4px 8px;
+                padding: 4px 4px;
                 font-weight: bold;
                 border-radius: 3px;
             }
@@ -228,6 +228,8 @@ class X_Grid(QMainWindow):
                 selection-color: black;
             }
             """)
+        self.export_excel_button.setStyleSheet("padding: 5px 6px;")
+        self.export_button.setStyleSheet("padding: 5px 6px;")
 
         self.add_layer_button.clicked.connect(self.prompt_add_layer); self.remove_layer_button.clicked.connect(self.remove_selected_layer); self.layer_up_button.clicked.connect(self.move_layer_up); self.layer_down_button.clicked.connect(self.move_layer_down); self.layer_list_widget.itemChanged.connect(self.on_layer_item_changed); self.layer_list_widget.currentItemChanged.connect(self.on_layer_item_changed); self.view.filesDropped.connect(self.handle_dropped_files); self.layer_list_widget.filesDropped.connect(self.handle_dropped_files)
         
@@ -240,7 +242,11 @@ class X_Grid(QMainWindow):
 
         self.calculate_button.clicked.connect(self.run_calculation_and_draw); 
         self.export_excel_button.clicked.connect(self.export_summary_to_excel)
-        self.export_button.clicked.connect(self.export_results); self.update_title_button.clicked.connect(self.update_title_display); self.subtitle_input.returnPressed.connect(self.update_title_display); self.view.sceneClicked.connect(self.on_scene_clicked); self.view.sceneRightClicked.connect(self.on_scene_right_clicked); self.display_mode_combo.currentIndexChanged.connect(self.on_display_mode_changed)
+        self.export_button.clicked.connect(self.export_results)
+        self.subtitle_input.returnPressed.connect(self.update_title_display)
+        self.view.sceneClicked.connect(self.on_scene_clicked)
+        self.view.sceneRightClicked.connect(self.on_scene_right_clicked)
+        self.display_mode_combo.currentIndexChanged.connect(self.on_display_mode_changed)
         
         self.add_annotation_button.clicked.connect(self.start_add_text)
         self.view.removeAnnotationRequested.connect(self.remove_text_annotation)
@@ -335,7 +341,7 @@ class X_Grid(QMainWindow):
             self._set_guide_text("全ての設定が完了しました。\n**「計算を実行」**ボタンを押してください。")
             self.calculate_button.setEnabled(True)
         elif new_state == AppState.RESULTS_DISPLAYED:
-            self._set_guide_text("計算が完了しました。\n見出しを入力して「表示」後、\n**「PDFエクスポート」**が可能です。")
+            self._set_guide_text("計算が完了しました。\n見出しを入力して **Enterキー** を押すと、\n**「PDFエクスポート」**が可能になります。")
             self.calculate_button.setEnabled(True)
             self.export_button.setEnabled(self.project.title_is_displayed)
             if self.project.is_split_mode and len(self.project.sub_area_data) > 1:
@@ -345,6 +351,8 @@ class X_Grid(QMainWindow):
                 self.export_excel_button.setEnabled(self.project.title_is_displayed and is_split_summary)
         
         self.update_area_display()
+        if hasattr(self, 'top_level_layout'):
+            self.top_level_layout.activate()
 
     def _start_single_area_workflow(self):
         self.clear_all_calculation_settings()
@@ -552,7 +560,7 @@ class X_Grid(QMainWindow):
                     if calc_mode == 'internal':
                         is_valid_click = self.calculator.is_cell_in_area((row, col), target_geom)
                         if not is_valid_click:
-                            QMessageBox.warning(self, "入力エラー", "土場は、計算対象区域内のセルをクリックして指定してください。")
+                            QMessageBox.warning(self, "入力エラー", "土場は、計算対象ポリゴンと重なっているセルをクリックして指定してください。")
                             return
                     elif calc_mode == 'external':
                         is_valid_click = self.renderer.is_cell_on_boundary(row, col, target_geom)
@@ -669,8 +677,6 @@ class X_Grid(QMainWindow):
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
             if self.add_layers_from_file(file_path, layer_names_to_add):
-                self.project.map_offset_x = 0.0
-                self.project.map_offset_y = 0.0
                 self.update_layout_and_redraw()
         finally:
             QApplication.restoreOverrideCursor()
@@ -769,7 +775,7 @@ class X_Grid(QMainWindow):
         self.renderer.full_redraw()
         self._evaluate_and_set_readiness_state()
         self.update_area_display()
-        
+
     def reset_for_repositioning(self):
         if self.project.is_split_mode and self.project.app_state == AppState.RESULTS_DISPLAYED:
             QMessageBox.information(self, "情報", "分割モードの計算結果です。\n設定を変更する場合は「設定クリア」を押してください。")
@@ -854,7 +860,7 @@ class X_Grid(QMainWindow):
             QMessageBox.warning(self, "エクスポート不可", "この機能は、区域分割モードの総括表表示時のみ利用できます。")
             return
         if not self.project.title_is_displayed:
-            QMessageBox.warning(self, "入力エラー", "見出しが入力・表示されていません。\n入力して「見出し表示」ボタンを押してから、再度エクスポートしてください。")
+            QMessageBox.warning(self, "入力エラー", "見出しが入力されていません。\n見出しを入力してEnterキーを押してから、再度エクスポートしてください。")
             return
         if not self.project.calculation_data or not self.project.sub_area_data:
             QMessageBox.warning(self, "エラー", "エクスポートするデータがありません。")
@@ -875,7 +881,6 @@ class X_Grid(QMainWindow):
         finally:
             QApplication.restoreOverrideCursor()
 
-    # MODIFIED: This method now uses the ReportGenerator
     def _create_detailed_excel_summary(self, file_path):
         """
         ReportGeneratorから取得したデータを用いて、
@@ -1009,7 +1014,7 @@ class X_Grid(QMainWindow):
 
     def export_results(self):
         if not self.project.title_is_displayed:
-            QMessageBox.warning(self, "入力エラー", "見出しが入力・表示されていません。\n入力して「見出し表示」ボタンを押してから、再度エクスポートしてください。")
+            QMessageBox.warning(self, "入力エラー", "見出しが入力されていません。\n見出しを入力してEnterキーを押してから、再度エクスポートしてください。")
             return
         if not self.project.calculation_data:
             QMessageBox.warning(self, "エラー", "エクスポートする内容がありません。「計算を実行」してください。")
@@ -1019,7 +1024,8 @@ class X_Grid(QMainWindow):
 
         if is_split_mode_multi_area:
             msg_box = QMessageBox(self)
-            msg_box.setWindowFlags(msg_box.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint | Qt.WindowType.CustomizeWindowHint | Qt.WindowType.WindowTitleHint)
+            msg_box.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.WindowTitleHint | Qt.WindowType.CustomizeWindowHint)
+            msg_box.setWindowFlags(msg_box.windowFlags() & ~Qt.WindowType.WindowCloseButtonHint)
             msg_box.setIcon(QMessageBox.Icon.Question)
             msg_box.setWindowTitle("エクスポート方法の選択")
             msg_box.setText("複数ページの出力方法を選択してください。")
@@ -1222,41 +1228,21 @@ class X_Grid(QMainWindow):
         temp_calculator = Calculator(temp_project, temp_renderer)
         temp_project.calculator = temp_calculator
         
-        temp_renderer.full_redraw(hide_pointers=False, for_pdf=True)
+        temp_renderer.full_redraw(for_pdf=True)
         
-        source_grid_rect = temp_renderer.get_grid_rect()
-        if not source_grid_rect.isValid():
-             raise Exception(f"ページ '{display_mode}' のグリッド描画範囲が無効です。")
+        # MODIFIED: PDF出力時は常にコンテンツ全体の矩形を取得する
+        source_rect = temp_renderer.get_full_content_rect()
         
-        extended_source_rect = temp_renderer.get_full_content_rect()
-        if not extended_source_rect.isValid():
+        if not source_rect.isValid():
             raise Exception(f"ページ '{display_mode}' のコンテンツ描画範囲が無効です。")
-
-        PHYSICAL_CELL_SIZE_MM = 5.0
-        target_grid_width_mm = temp_project.grid_cols * PHYSICAL_CELL_SIZE_MM
-        target_grid_height_mm = temp_project.grid_rows * PHYSICAL_CELL_SIZE_MM
-        
-        scale_x = extended_source_rect.width() / source_grid_rect.width()
-        scale_y = extended_source_rect.height() / source_grid_rect.height()
-
-        target_width_mm = target_grid_width_mm * scale_x
-        target_height_mm = target_grid_height_mm * scale_y
-
+            
         page_rect_mm = page_layout.fullRect(QPageLayout.Unit.Millimeter)
-        margin_x_mm = (page_rect_mm.width() - target_width_mm) / 2.0
-        margin_y_mm = (page_rect_mm.height() - target_height_mm) / 2.0
-        
         dots_per_mm = pdf_writer.resolution() / 25.4
-        target_rect_in_dots = QRectF(
-            margin_x_mm * dots_per_mm,
-            margin_y_mm * dots_per_mm,
-            target_width_mm * dots_per_mm,
-            target_height_mm * dots_per_mm
-        )
+        target_rect_in_dots = QRectF(0, 0, page_rect_mm.width() * dots_per_mm, page_rect_mm.height() * dots_per_mm)
 
         painter = QPainter(pdf_writer)
         try:
-            temp_scene.render(painter, target_rect_in_dots, extended_source_rect)
+            temp_scene.render(painter, target_rect_in_dots, source_rect)
         finally:
             painter.end()
 

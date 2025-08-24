@@ -8,7 +8,7 @@ from shapely.geometry import box, shape, Polygon, MultiPolygon, LineString, Mult
 from shapely.ops import unary_union, nearest_points
 
 from utils import DEFAULT_STYLE_INFO, _parse_any_color_string
-from report_generator import ReportGenerator # NEW: ReportGeneratorをインポート
+from report_generator import ReportGenerator
 
 
 class DraggableLabelItem(QGraphicsTextItem):
@@ -40,6 +40,7 @@ class MapRenderer:
         self.project = project
         self.for_pdf = for_pdf
         
+        # MODIFIED: グリッドの描画開始位置は常に固定とする
         if self.for_pdf:
             self.grid_offset_x, self.grid_offset_y = 80, 150
         else:
@@ -52,14 +53,14 @@ class MapRenderer:
         self.trace_preview_item = None
 
         self._setup_drawing_styles()
-        self.report_generator = ReportGenerator() # NEW: インスタンスを作成
+        self.report_generator = ReportGenerator()
 
     def scene_to_world(self, scene_pos):
         params = self._get_transform_parameters()
         if not params:
             return None
 
-        pos_no_offset = scene_pos - QPointF(self.project.map_offset_x, self.project.map_offset_y)
+        pos_no_offset = scene_pos
         relative_x = pos_no_offset.x() - params['grid_center_x']
         relative_y = -(pos_no_offset.y() - params['grid_center_y'])
         world_dx = relative_x / params['scale']
@@ -74,7 +75,7 @@ class MapRenderer:
         if not params: return None
         def transform_geom_coords(coords):
             rotated_coords = self._apply_rotation_to_coords(coords)
-            return [(params['grid_center_x'] + (p[0] - params['center_x']) * params['scale'] + self.project.map_offset_x, params['grid_center_y'] - (p[1] - params['center_y']) * params['scale'] + self.project.map_offset_y) for p in rotated_coords]
+            return [(params['grid_center_x'] + (p[0] - params['center_x']) * params['scale'], params['grid_center_y'] - (p[1] - params['center_y']) * params['scale']) for p in rotated_coords]
         try:
             if isinstance(world_geom, Polygon):
                 return Polygon(transform_geom_coords(world_geom.exterior.coords), [transform_geom_coords(i.coords) for i in world_geom.interiors])
@@ -202,12 +203,12 @@ class MapRenderer:
     def is_cell_on_boundary(self, row, col, target_geom):
         if not target_geom: return False
         
-        cell_world_poly = self._get_cell_world_polygon(row, col)
+        cell_world_poly = self.get_cell_world_polygon(row, col)
         if not cell_world_poly: return False
 
         return cell_world_poly.intersects(target_geom.boundary)
 
-    def _get_cell_world_polygon(self, row, col):
+    def get_cell_world_polygon(self, row, col):
         params = self._get_transform_parameters()
         if not params: return None
 
@@ -264,7 +265,7 @@ class MapRenderer:
         
         return content_rect.adjusted(-20, -20, 20, 20)
         
-    def full_redraw(self, hide_pointers=False, hide_calc_results=False, for_pdf=False):
+    def full_redraw(self, for_pdf=False):
         self.for_pdf = for_pdf
         self.clear_all_graphics_items()
 
@@ -275,15 +276,14 @@ class MapRenderer:
         if is_summary_mode:
             self.draw_summary_view(for_pdf=for_pdf)
         else:
-            self.draw_map_view(hide_pointers, hide_calc_results, for_pdf)
+            self.draw_map_view(for_pdf)
 
-    def draw_map_view(self, hide_pointers=False, hide_calc_results=False, for_pdf=False):
+    def draw_map_view(self, for_pdf=False):
         self.draw_grid()
         self.redraw_all_layers()
         self.draw_text_annotations()
-        if not hide_pointers:
-            self.draw_all_pointers()
-        if self.project.calculation_data and not hide_calc_results:
+        self.draw_all_pointers()
+        if self.project.calculation_data:
             self.draw_calculation_results()
         self.draw_split_lines()
         self.update_area_outline()
@@ -947,7 +947,6 @@ class MapRenderer:
         self.calculation_items.append(self._add_aligned_text(k_value_text, self.fonts['data'], self.colors['dark'], QPointF(legend_x + self.project.cell_size_on_screen/2, legend_y + self.project.cell_size_on_screen + 20), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignHCenter))
         self.calculation_items.append(self._add_aligned_text("縮尺: 1/5000", self.fonts['scale'], self.colors['dark'], QPointF(legend_x + self.project.cell_size_on_screen + 65, legend_y + 4), Qt.AlignmentFlag.AlignLeft))
 
-    # MODIFIED: This entire method is replaced to use the ReportGenerator
     def draw_summary_page_contents(self, for_pdf=False):
         if not self.project.calculation_data:
             return
@@ -968,7 +967,6 @@ class MapRenderer:
         y_pos = y_start
         self._setup_drawing_styles(for_summary_pdf=True)
         
-        # --- Metrics for layout ---
         metrics = {
             'title': QFontMetrics(self.fonts['title']),
             'result': QFontMetrics(self.fonts['result']),
@@ -1020,16 +1018,17 @@ class MapRenderer:
             
             elif block_type == 'table':
                 table_x, table_y = x_start + 20, y_pos
-                col_widths = [120, 140, 140, 180]
+                col_widths = [120, 80, 100, 100, 160]
+                header_height = 45 
                 row_height = 35
                 pen = QPen(self.colors['dark'])
 
                 for i, h_text in enumerate(block['headers']):
                     x = table_x + sum(col_widths[:i])
-                    items.append(self.scene.addRect(x, table_y, col_widths[i], row_height, pen, QBrush(QColor("#F0F0F0"))))
-                    items.append(self._add_aligned_text(h_text, self.fonts['data_bold'], self.colors['dark'], QPointF(x + col_widths[i]/2, table_y + row_height/2)))
+                    items.append(self.scene.addRect(x, table_y, col_widths[i], header_height, pen, QBrush(QColor("#F0F0F0"))))
+                    items.append(self._add_aligned_text(h_text, self.fonts['data_bold'], self.colors['dark'], QPointF(x + col_widths[i]/2, table_y + header_height/2)))
                 
-                y_pos = table_y + row_height
+                y_pos = table_y + header_height
                 
                 for row_data in block['rows']:
                     for j, d_text in enumerate(row_data):
@@ -1084,6 +1083,12 @@ class MapRenderer:
         bbox_to_use, scale = (min(xs), min(ys), max(xs), max(ys)), self.project.cell_size_on_screen / self.project.k_value
         center_x, center_y = bbox_to_use[0] + (bbox_to_use[2] - bbox_to_use[0])/2, bbox_to_use[1] + (bbox_to_use[3] - bbox_to_use[1])/2
         grid_center_x, grid_center_y = self.grid_offset_x + (self.project.grid_cols*self.project.cell_size_on_screen)/2, self.grid_offset_y + (self.project.grid_rows*self.project.cell_size_on_screen)/2
+        
+        # MODIFIED: パン操作のオフセットを、グリッド自体ではなく座標変換の中心点に適用する
+        if not self.for_pdf:
+            grid_center_x += self.project.map_offset_x
+            grid_center_y += self.project.map_offset_y
+            
         return {'scale': scale, 'center_x': center_x, 'center_y': center_y, 'grid_center_x': grid_center_x, 'grid_center_y': grid_center_y}
     
     def _apply_rotation_to_coords(self, coords, inverse=False):

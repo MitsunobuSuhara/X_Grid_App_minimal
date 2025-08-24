@@ -129,12 +129,21 @@ class Calculator:
         }
 
     def is_cell_in_area(self, cell, world_geom):
-        """指定されたセルが、指定されたジオメトリの計算対象エリア内に含まれるかを判定する"""
-        if not cell or not world_geom:
+        """
+        【土場選択用】指定されたセルが、ジオメトリと少しでも交差するかを判定する。
+        計算対象セルの定義（面積50%ルール）とは異なり、単純な交差判定を行う。
+        """
+        if not cell or not world_geom or not world_geom.is_valid:
             return False
         
-        all_valid_cells = self.get_cells_for_geom(world_geom)
-        return cell in all_valid_cells
+        row, col = cell
+        # Rendererの機能を使って、指定されたセルのワールド座標ポリゴンを取得
+        cell_world_poly = self.renderer.get_cell_world_polygon(row, col)
+        if not cell_world_poly:
+            return False
+
+        # ワールドジオメトリとセルのワールドポリゴンが交差するかどうかを判定
+        return world_geom.intersects(cell_world_poly)
 
     def get_in_area_cells(self):
         """現在表示対象となっているエリアのセルを取得する"""

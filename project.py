@@ -1,5 +1,3 @@
-# --- START OF FILE project.py ---
-
 import uuid
 from PyQt6.QtGui import QPageLayout, QFont, QColor
 from shapely.geometry import shape, Polygon, MultiPolygon, LineString
@@ -30,8 +28,9 @@ class Project:
         # --- 地図制御 ---
         self.master_bbox = None
         self.map_rotation = 0
-        self.map_offset_x = 0.0
-        self.map_offset_y = 0.0
+        # MODIFIED: 地図のパン操作によるオフセット値を追加
+        self.map_offset_x = 0
+        self.map_offset_y = 0
         
         # --- 計算設定 (リセット対象) ---
         self.is_split_mode = False
@@ -64,6 +63,9 @@ class Project:
         self.default_landing_cell = None
         self.default_additional_distance = 0.0
         self.configuring_area_index = None
+        # MODIFIED: 設定クリア時にオフセットもリセット
+        self.map_offset_x = 0
+        self.map_offset_y = 0
     
     def get_label_position(self, unique_feature_id):
         return self.label_positions.get(unique_feature_id)
@@ -247,6 +249,11 @@ class Project:
                     layout_found = False
 
         layout_changed = (self.grid_rows != final_grid_rows or self.grid_cols != final_grid_cols or self.map_rotation != final_map_rotation or self.page_orientation != final_page_orientation)
+        # MODIFIED: レイアウトが変更されたらパンをリセット
+        if layout_changed:
+            self.map_offset_x = 0
+            self.map_offset_y = 0
+            
         self.grid_rows, self.grid_cols, self.page_orientation, self.map_rotation = final_grid_rows, final_grid_cols, final_page_orientation, final_map_rotation
         
         return layout_changed, info_message if layout_changed else ""

@@ -1,5 +1,3 @@
-# --- START OF FILE ui_components.py ---
-
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QCheckBox, QDialogButtonBox, QListWidget, QGraphicsView, QMenu,
     QWidget, QFormLayout, QLineEdit, QPushButton, QHBoxLayout, QColorDialog, QFontComboBox,
@@ -320,6 +318,10 @@ class MyGraphicsView(QGraphicsView):
 
         if event.button() == Qt.MouseButton.LeftButton:
             if event.modifiers() == Qt.KeyboardModifier.ControlModifier:
+                # MODIFIED: パン操作開始時にすべての計算設定をクリアする
+                if self.main_window:
+                    self.main_window.clear_all_calculation_settings()
+                
                 self.is_panning = True
                 self.last_pan_point = event.pos()
                 self.viewport().setCursor(Qt.CursorShape.ClosedHandCursor)
@@ -373,7 +375,7 @@ class MyGraphicsView(QGraphicsView):
             if self.main_window:
                 self.main_window.project.map_offset_x += delta.x()
                 self.main_window.project.map_offset_y += delta.y()
-                self.main_window.renderer.full_redraw(hide_pointers=True, hide_calc_results=True)
+                self.main_window.renderer.full_redraw()
             self.last_pan_point = event.pos()
             return
         
