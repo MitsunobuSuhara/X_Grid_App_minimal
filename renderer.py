@@ -1119,7 +1119,7 @@ class MapRenderer:
                 try: final_style['line_width'] = float(line_width_prop)
                 except (ValueError, TypeError): pass
         current_fill_color = final_style['fill_color']
-        if current_fill_color.alpha() == 255: current_fill_color.setAlpha(150); final_style['fill_color'] = current_fill_color
+        if current_fill_color.alpha() == 255: current_fill_color.setAlpha(200); final_style['fill_color'] = current_fill_color
         return final_style
     
     def _add_aligned_text(self, text, font, color, point, alignment=Qt.AlignmentFlag.AlignCenter):

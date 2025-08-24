@@ -1,3 +1,5 @@
+#--- START OF FILE project.py ---
+
 import uuid
 from PyQt6.QtGui import QPageLayout, QFont, QColor
 from shapely.geometry import shape, Polygon, MultiPolygon, LineString
@@ -63,9 +65,7 @@ class Project:
         self.default_landing_cell = None
         self.default_additional_distance = 0.0
         self.configuring_area_index = None
-        # MODIFIED: 設定クリア時にオフセットもリセット
-        self.map_offset_x = 0
-        self.map_offset_y = 0
+        # MODIFIED: オフセットのリセットをこのメソッドから削除
     
     def get_label_position(self, unique_feature_id):
         return self.label_positions.get(unique_feature_id)
