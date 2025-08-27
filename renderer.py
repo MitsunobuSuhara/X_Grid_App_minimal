@@ -40,7 +40,6 @@ class MapRenderer:
         self.project = project
         self.for_pdf = for_pdf
         
-        # MODIFIED: グリッドの描画開始位置は常に固定とする
         if self.for_pdf:
             self.grid_offset_x, self.grid_offset_y = 80, 150
         else:
@@ -1084,10 +1083,9 @@ class MapRenderer:
         center_x, center_y = bbox_to_use[0] + (bbox_to_use[2] - bbox_to_use[0])/2, bbox_to_use[1] + (bbox_to_use[3] - bbox_to_use[1])/2
         grid_center_x, grid_center_y = self.grid_offset_x + (self.project.grid_cols*self.project.cell_size_on_screen)/2, self.grid_offset_y + (self.project.grid_rows*self.project.cell_size_on_screen)/2
         
-        # MODIFIED: パン操作のオフセットを、グリッド自体ではなく座標変換の中心点に適用する
-        if not self.for_pdf:
-            grid_center_x += self.project.map_offset_x
-            grid_center_y += self.project.map_offset_y
+        # MODIFIED: パン操作のオフセットを、画面表示とPDF出力の両方で適用するように修正
+        grid_center_x += self.project.map_offset_x
+        grid_center_y += self.project.map_offset_y
             
         return {'scale': scale, 'center_x': center_x, 'center_y': center_y, 'grid_center_x': grid_center_x, 'grid_center_y': grid_center_y}
     

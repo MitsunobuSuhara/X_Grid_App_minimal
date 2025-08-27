@@ -884,7 +884,7 @@ class X_Grid(QMainWindow):
     def _create_detailed_excel_summary(self, file_path):
         """
         ReportGeneratorから取得したデータを用いて、
-        アプリケーションの表示内容に忠実なExcelファイルを生成する
+        アプリケーションの表示内容に忠実なExcelファイルを生成する (修正版)
         """
         report_data = self.report_generator.generate_summary_data(self.project)
         if not report_data:
@@ -894,27 +894,39 @@ class X_Grid(QMainWindow):
         ws = wb.active
         ws.title = "平均集材距離計算表 (総括)"
 
-        # --- Styles ---
+        # --- スタイルの定義 ---
         fonts = {
             'title': Font(name='游ゴシック', size=20, bold=True),
-            'section_header': Font(name='游ゴシック', size=14, bold=True),
+            'section_header': Font(name='游ゴシック', size=14, bold=True, underline='single'),
             'data': Font(name='游ゴシック', size=12),
-            'note': Font(name='游ゴシック', size=11, italic=True),
+            'note': Font(name='游ゴシック', size=11),
             'table_header': Font(name='游ゴシック', size=11, bold=True),
             'final_result': Font(name='游ゴシック', size=14, bold=True)
         }
         align = {
-            'left': Alignment(horizontal='left', vertical='center', wrap_text=True),
+            'left_wrap': Alignment(horizontal='left', vertical='center', wrap_text=True),
             'center': Alignment(horizontal='center', vertical='center', wrap_text=True),
-            'right': Alignment(horizontal='right', vertical='center', wrap_text=True)
+            'right': Alignment(horizontal='right', vertical='center', wrap_text=True),
+            'left': Alignment(horizontal='left', vertical='center', wrap_text=False)
         }
         fills = {
-            'final': PatternFill(start_color="FFFFCC", end_color="FFFFCC", fill_type="solid"),
+            'final': PatternFill(start_color="FFFF99", end_color="FFFF99", fill_type="solid"),
             'header': PatternFill(start_color="F0F0F0", end_color="F0F0F0", fill_type="solid")
         }
-        border = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
+        thin_border = Border(left=Side(style='thin'), 
+                             right=Side(style='thin'), 
+                             top=Side(style='thin'), 
+                             bottom=Side(style='thin'))
         
-        ws.column_dimensions['A'].width = 100
+        # --- 列幅の設定 ---
+        ws.column_dimensions['A'].width = 3  # 左マージン
+        ws.column_dimensions['B'].width = 15 # 表の「区域」列
+        ws.column_dimensions['C'].width = 12 # 表の「セル数」列
+        ws.column_dimensions['D'].width = 12 # 表の「面積」列
+        ws.column_dimensions['E'].width = 12 # 表の「面積割合」列
+        ws.column_dimensions['F'].width = 20 # 表の「平均集材距離」列
+        ws.column_dimensions['G'].width = 60 # 計算式用の幅広列
+        
         current_row = 1
 
         for block in report_data:
@@ -924,91 +936,103 @@ class X_Grid(QMainWindow):
                 current_row += 1
                 continue
             
-            ws.merge_cells(f'A{current_row}:G{current_row}')
-            cell = ws[f'A{current_row}']
-            
-            if block_type == 'title':
-                cell.value = block['text']
-                cell.font = fonts['title']
-                cell.alignment = align['left']
-                ws.row_dimensions[current_row].height = 40
-            
-            elif block_type == 'section_header':
-                cell.value = block['text']
-                cell.font = fonts['section_header']
-                cell.alignment = align['left']
-                ws.row_dimensions[current_row].height = 25
-            
-            elif block_type in ['formula_line', 'calculation_line']:
-                cell.value = block['text']
-                cell.font = fonts['data']
-                cell.alignment = align['left']
-            
-            elif block_type == 'note':
-                cell.value = block['text']
-                cell.font = fonts['note']
-                cell.alignment = align['left']
+            # --- テキストブロックの処理 ---
+            if block_type in ['title', 'section_header', 'formula_line', 'note', 'final_result', 'complex_formula_line', 'final_calculation']:
+                # 結合するセル範囲を決定
+                if block_type == 'final_result':
+                    # 最終結果は右寄せにするため、結合範囲を調整
+                    ws.merge_cells(start_row=current_row, start_column=2, end_row=current_row, end_column=7)
+                    cell = ws.cell(row=current_row, column=2)
+                    cell.alignment = align['right']
+                    cell.font = fonts['final_result']
+                    cell.fill = fills['final']
+                    cell.value = block['text']
+                    ws.row_dimensions[current_row].height = 30
+                else:
+                    # その他のテキストブロックは左寄せで結合
+                    ws.merge_cells(start_row=current_row, start_column=2, end_row=current_row, end_column=7)
+                    cell = ws.cell(row=current_row, column=2)
+                    cell.alignment = align['left_wrap']
+                    
+                    if block_type == 'title':
+                        cell.font = fonts['title']
+                        cell.value = block['text']
+                        ws.row_dimensions[current_row].height = 40
+                    elif block_type == 'section_header':
+                        cell.font = fonts['section_header']
+                        cell.value = block['text']
+                        ws.row_dimensions[current_row].height = 25
+                    elif block_type == 'note':
+                        cell.font = fonts['note']
+                        cell.value = block['text']
+                    elif block_type == 'complex_formula_line':
+                        # 複数行になる計算結果を改行で表現
+                        full_text = f"{block['formula_part1']}{block['result_part1']}\n{block['result_part2']}"
+                        cell.value = full_text
+                        cell.font = fonts['data']
+                        ws.row_dimensions[current_row].height = 40 
+                    elif block_type == 'final_calculation':
+                        full_text = f"{block['prefix']} = {block['line1']}\n= {block['line2']}\n≒ {block['line3']}"
+                        cell.value = full_text
+                        cell.font = fonts['data']
+                        ws.row_dimensions[current_row].height = 60
+                    else: # formula_line
+                        cell.value = block['text']
+                        cell.font = fonts['data']
 
-            elif block_type == 'complex_formula_line':
-                # Excelでは改行で表現
-                full_text = f"{block['formula_part1']}{block['result_part1']}\n{block['result_part2']}"
-                cell.value = full_text
-                cell.font = fonts['data']
-                cell.alignment = align['left']
-                ws.row_dimensions[current_row].height = 40 # 2行分
-            
-            elif block_type == 'final_calculation':
-                full_text = f"{block['prefix']} = {block['line1']}\n= {block['line2']}\n≒ {block['line3']}"
-                cell.value = full_text
-                cell.font = fonts['data']
-                cell.alignment = align['left']
-                ws.row_dimensions[current_row].height = 60 # 3行分
+                current_row += 1
 
-            elif block_type == 'final_result':
-                cell.value = block['text']
-                cell.font = fonts['final_result']
-                cell.alignment = align['right']
-                cell.fill = fills['final']
-                ws.row_dimensions[current_row].height = 30
-            
+            # --- 表ブロックの処理 ---
             elif block_type == 'table':
-                ws.unmerge_cells(f'A{current_row}:G{current_row}')
-                # Setup table columns
-                ws.column_dimensions['B'].width = 20
-                ws.column_dimensions['C'].width = 15
-                ws.column_dimensions['D'].width = 15
-                ws.column_dimensions['E'].width = 25
+                table_start_col = 2 # B列から開始
                 
-                # Headers
+                # ヘッダー行
                 for i, h_text in enumerate(block['headers']):
-                    h_cell = ws.cell(row=current_row, column=i + 2, value=h_text)
+                    h_cell = ws.cell(row=current_row, column=i + table_start_col, value=h_text.replace('\n', '')) # Excelでは改行不要
                     h_cell.font = fonts['table_header']
                     h_cell.alignment = align['center']
-                    h_cell.border = border
+                    h_cell.border = thin_border
                     h_cell.fill = fills['header']
+                ws.row_dimensions[current_row].height = 30
                 current_row += 1
                 
-                # Rows
+                # データ行
                 for row_data in block['rows']:
                     for j, d_text in enumerate(row_data):
-                        d_cell = ws.cell(row=current_row, column=j + 2, value=d_text)
+                        d_cell = ws.cell(row=current_row, column=j + table_start_col)
+                        # 数値に変換可能なものは数値として格納
+                        try:
+                            d_cell.value = float(d_text)
+                            if '.' in d_text:
+                                d_cell.number_format = '0.00' if len(d_text.split('.')[1]) == 2 else '0.000'
+                            else:
+                                d_cell.number_format = '0'
+                        except ValueError:
+                            d_cell.value = d_text
+                        
                         d_cell.font = fonts['data']
-                        d_cell.border = border
+                        d_cell.border = thin_border
                         d_cell.alignment = align['right'] if j > 0 else align['left']
                     current_row += 1
                 
-                # Total Row
+                # 合計行
                 for j, d_text in enumerate(block['total_row']):
-                    t_cell = ws.cell(row=current_row, column=j + 2, value=d_text)
+                    t_cell = ws.cell(row=current_row, column=j + table_start_col)
+                    # 数値に変換可能なものは数値として格納
+                    try:
+                        t_cell.value = float(d_text)
+                        if '.' in d_text:
+                             t_cell.number_format = '0.00' if len(d_text.split('.')[1]) == 2 else '0.000'
+                        else:
+                            t_cell.number_format = '0'
+                    except (ValueError, TypeError):
+                        t_cell.value = d_text
+
                     t_cell.font = fonts['table_header']
-                    t_cell.border = border
+                    t_cell.border = thin_border
                     t_cell.fill = fills['header']
                     t_cell.alignment = align['right'] if j > 0 else align['center']
-                # Continue loop from the next row after table
                 current_row += 1
-                continue # Skip the final current_row += 1
-
-            current_row += 1
 
         wb.save(file_path)
 
@@ -1203,6 +1227,9 @@ class X_Grid(QMainWindow):
         temp_project.sub_area_data = self.project.sub_area_data
         temp_project.map_rotation = self.project.map_rotation
         temp_project.master_bbox = self.project.master_bbox
+        # MODIFIED: 地図のパン操作によるオフセット値をPDF出力に引き継ぐ
+        temp_project.map_offset_x = self.project.map_offset_x
+        temp_project.map_offset_y = self.project.map_offset_y
         temp_project.text_annotations = self.project.text_annotations
         temp_project.label_positions = self.project.label_positions
         temp_project.title_is_displayed = self.project.title_is_displayed
