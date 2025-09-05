@@ -29,7 +29,7 @@ from report_generator import ReportGenerator
 class X_Grid(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("X_Grid - 平均集材距離計算システム")
+        self.setWindowTitle("X_Grid - 平均集材距離計算システム2.0")
         self.setGeometry(50, 50, 1800, 1000)
         self.project = Project()
         self.scene = QGraphicsScene(self)
@@ -1257,11 +1257,32 @@ class X_Grid(QMainWindow):
         
         temp_renderer.full_redraw(for_pdf=True)
         
-        # MODIFIED: PDF出力時は常にコンテンツ全体の矩形を取得する
-        source_rect = temp_renderer.get_full_content_rect()
-        
-        if not source_rect.isValid():
+        # --- MODIFIED START: スケールを1:5000に固定するためのロジック ---
+        # 1. 物理的なページサイズをmm単位で取得
+        page_size_mm = page_layout.pageSize().size(QPageSize.Unit.Millimeter)
+
+        # 2. 1シーンユニットあたりの物理的な長さ(mm)を計算
+        #    縮尺1:5000では、k_value(m)は (k_value * 1000 / 5000) mm となる。
+        #    これが cell_size_on_screen シーンユニットに相当する。
+        #    例: k=25m -> 5mm。cell_size=25 -> 5mm。 よって 1 scene unit = 0.2mm
+        mm_per_scene_unit = (temp_project.k_value * 1000 / 5000) / temp_project.cell_size_on_screen
+        if mm_per_scene_unit == 0:
+            raise ValueError("計算されたスケールが0です。プロジェクト設定を確認してください。")
+
+        # 3. ページ全体を描画するために必要なシーンユニットのサイズを計算
+        source_width = page_size_mm.width() / mm_per_scene_unit
+        source_height = page_size_mm.height() / mm_per_scene_unit
+
+        # 4. 描画するコンテンツ全体の中心を取得
+        content_rect = temp_renderer.get_full_content_rect()
+        if not content_rect.isValid():
             raise Exception(f"ページ '{display_mode}' のコンテンツ描画範囲が無効です。")
+        content_center = content_rect.center()
+
+        # 5. 計算したサイズと中心で、シーンから切り取るソース矩形(source_rect)を定義
+        source_rect = QRectF(0, 0, source_width, source_height)
+        source_rect.moveCenter(content_center)
+        # --- MODIFIED END ---
             
         page_rect_mm = page_layout.fullRect(QPageLayout.Unit.Millimeter)
         dots_per_mm = pdf_writer.resolution() / 25.4
