@@ -579,9 +579,17 @@ class MapRenderer:
         for item in self.fixed_split_line_items:
             if item.scene(): self.scene.removeItem(item)
         self.fixed_split_line_items.clear()
-        if not self.project.split_lines: return
-        pen = QPen(QColor(255, 193, 7), 3, Qt.PenStyle.SolidLine)
-        pen.setCosmetic(True)
+        if self.project.split_lines:
+            # MODIFIED: PDF出力時は物理的な幅を持つ線を描画する
+            if self.for_pdf:
+                # セルサイズの1/10 (5mmの場合0.5mm) の太さにする
+                width = self.project.cell_size_on_screen / 10.0
+                # --- 分割線の色を変更する場合は、以下の QColor(R, G, B) の数値を変更してください ---
+                pen = QPen(QColor(255, 193, 7), width, Qt.PenStyle.SolidLine)
+                pen.setCosmetic(False)
+            else:
+                pen = QPen(QColor(255, 193, 7), 3, Qt.PenStyle.SolidLine)
+                pen.setCosmetic(True)
         world_geom = self.project._get_combined_calculable_geom()
         if not world_geom: return
         for line in self.project.split_lines:
