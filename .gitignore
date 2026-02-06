@@ -67,3 +67,5 @@ venv.bak/
 
 # Serena/Model Context Protocol（MCP）
 .serena/
+# Documentation/Output
+*.pdf
