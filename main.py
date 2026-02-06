@@ -29,7 +29,7 @@ from report_generator import ReportGenerator
 class X_Grid(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("X_Grid - 平均集材距離計算システム")
+        self.setWindowTitle("X_Grid - 平均集材距離計算システム2.0")
         self.setGeometry(50, 50, 1800, 1000)
         self.project = Project()
         self.scene = QGraphicsScene(self)
@@ -1257,15 +1257,26 @@ class X_Grid(QMainWindow):
         
         temp_renderer.full_redraw(for_pdf=True)
         
-        # MODIFIED: PDF出力時は常にコンテンツ全体の矩形を取得する
         source_rect = temp_renderer.get_full_content_rect()
         
         if not source_rect.isValid():
             raise Exception(f"ページ '{display_mode}' のコンテンツ描画範囲が無効です。")
             
-        page_rect_mm = page_layout.fullRect(QPageLayout.Unit.Millimeter)
+        # MODIFIED: 1セル = 5mm になる厳密なスケーリングを適用
         dots_per_mm = pdf_writer.resolution() / 25.4
-        target_rect_in_dots = QRectF(0, 0, page_rect_mm.width() * dots_per_mm, page_rect_mm.height() * dots_per_mm)
+        unit_cell_mm = 5.0
+        unit_cell_dots = unit_cell_mm * dots_per_mm
+        
+        # シーン上の1セルサイズ(px)に対する、出力先(dots)でのサイズの比率
+        scale_factor = unit_cell_dots / temp_project.cell_size_on_screen
+        
+        target_width = source_rect.width() * scale_factor
+        target_height = source_rect.height() * scale_factor
+        
+        # 用紙の左上(0,0)から描画開始
+        # NOTE: ソースのget_full_content_rect()には余白が含まれているため、
+        # その余白分も5mmスケールで拡大縮小されて配置される。
+        target_rect_in_dots = QRectF(0, 0, target_width, target_height)
 
         painter = QPainter(pdf_writer)
         try:
@@ -1282,4 +1293,4 @@ if __name__ == "__main__":
     app.setFont(QFont("游ゴシック", 10))
     window = X_Grid()
     window.show()
-    sys.exit(app.exec())
+    sys.exit(app.exec()) 
