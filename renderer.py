@@ -1,4 +1,5 @@
 import math
+from decimal import Decimal, ROUND_HALF_UP
 from PyQt6.QtCore import Qt, QRectF, QPointF, pyqtSignal
 from PyQt6.QtGui import (
     QColor, QPen, QBrush, QFont, QPolygonF, QPainterPath, QFontMetrics
@@ -892,7 +893,8 @@ class MapRenderer:
         self.calculation_items.append(self._add_aligned_text(full_formula_str, font, color, QPointF(result_area_x, result_area_y), Qt.AlignmentFlag.AlignLeft))
         
         metrics = QFontMetrics(font)
-        rounded_dist = int(round(calc_data['final_distance']))
+        # MODIFIED: Pythonのデフォルトの「銀行丸め」を避け、一般的な「四捨五入」を実装
+        rounded_dist = int(Decimal(str(calc_data['final_distance'])).quantize(Decimal('0'), rounding=ROUND_HALF_UP))
         rounded_str = f"≒ {rounded_dist} m"
         
         pre_equal_part = full_formula_str.rsplit('=', 1)[0]
@@ -1066,11 +1068,12 @@ class MapRenderer:
                 item = self._add_aligned_text(block['text'], self.fonts['result'], self.colors['dark'], QPointF(x_start, y_pos), Qt.AlignmentFlag.AlignLeft)
                 items.append(item)
                 
-                bg_rect = item.boundingRect()
-                bg_item = self.scene.addRect(bg_rect, QPen(Qt.PenStyle.NoPen), QBrush(QColor(255, 255, 204)))
-                bg_item.setPos(item.pos())
-                bg_item.setZValue(item.zValue() - 1)
-                items.append(bg_item)
+                # MODIFIED: Removed yellow background highlight
+                # bg_rect = item.boundingRect()
+                # bg_item = self.scene.addRect(bg_rect, QPen(Qt.PenStyle.NoPen), QBrush(QColor(255, 255, 204)))
+                # bg_item.setPos(item.pos())
+                # bg_item.setZValue(item.zValue() - 1)
+                # items.append(bg_item)
                 
         self.calculation_items.extend(items)
         self._setup_drawing_styles()

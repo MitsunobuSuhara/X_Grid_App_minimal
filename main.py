@@ -1261,6 +1261,7 @@ class X_Grid(QMainWindow):
         
         if not source_rect.isValid():
             raise Exception(f"ページ '{display_mode}' のコンテンツ描画範囲が無効です。")
+
             
         # MODIFIED: 1セル = 5mm になる厳密なスケーリングを適用
         dots_per_mm = pdf_writer.resolution() / 25.4
