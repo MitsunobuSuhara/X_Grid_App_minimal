@@ -131,9 +131,12 @@ class ReportGenerator:
             for i, res in enumerate(sub_results):
                 # MODIFIED: 先ほど計算・調整した丸め後の比率 (小数第2位) を使用
                 ratio = ratios[i]
-                part_str = f"({int(round(res['final_distance']))}m × {ratio:.2f})"
+                # MODIFIED: 表示と計算を一致させるため、各区域の距離も四捨五入した整数値を使用する
+                rounded_area_dist = int(Decimal(str(res['final_distance'])).quantize(Decimal('0'), rounding=ROUND_HALF_UP))
+                
+                part_str = f"({rounded_area_dist}m × {ratio:.2f})"
                 weighted_sum_parts.append(part_str)
-                weighted_sum_values.append(Decimal(str(res['final_distance'])) * ratio)
+                weighted_sum_values.append(Decimal(str(rounded_area_dist)) * ratio)
 
             line1_formula = ' + '.join(weighted_sum_parts)
             final_dist_from_formula = float(sum(weighted_sum_values))
