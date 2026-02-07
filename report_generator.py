@@ -139,20 +139,30 @@ class ReportGenerator:
                 weighted_sum_values.append(Decimal(str(rounded_area_dist)) * ratio)
 
             line1_formula = ' + '.join(weighted_sum_parts)
-            final_dist_from_formula = float(sum(weighted_sum_values))
+            # Decimalのまま合計を出し、高精度を維持する
+            summary_decimal_result = sum(weighted_sum_values)
+            
+            # 小数第1位と整数の表示用文字列を、明示的に四捨五入して生成する
+            line2_val = summary_decimal_result.quantize(Decimal('0.1'), rounding=ROUND_HALF_UP)
+            line3_val = summary_decimal_result.quantize(Decimal('0'), rounding=ROUND_HALF_UP)
 
             report_blocks.append({
                 'type': 'final_calculation',
                 # MODIFIED: ユーザー要望により、計算式の見出しを「平均集材距離」から「加重距離計算」に変更
                 'prefix': "加重距離計算",
                 'line1': line1_formula,
-                'line2': f"{final_dist_from_formula:.1f} m",
-                'line3': f"{int(round(final_dist_from_formula))} m"
+                'line2': f"{line2_val:.1f} m",
+                'line3': f"≒ {line3_val} m"
             })
         report_blocks.append({'type': 'spacer', 'size': 20})
 
-        # --- 6. 最終結果 ---
-        final_dist_to_display = int(round(summary_result['final_distance']))
+        # --- 7. 最終結果 ---
+        # MODIFIED: 最終結果は、上の「加重距離計算」で算出した丸め後の値と完全に一致させる
+        if total_ha_rounded > 0:
+            final_dist_to_display = line3_val
+        else:
+            final_dist_to_display = int(round(summary_result['final_distance']))
+            
         final_result_str = f"平均集材距離 = {final_dist_to_display} m"
         report_blocks.append({'type': 'final_result', 'text': final_result_str})
 
