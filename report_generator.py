@@ -1,5 +1,5 @@
 # --- START OF FILE report_generator.py ---
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, ROUND_HALF_UP, ROUND_DOWN
 
 class ReportGenerator:
     """
@@ -43,12 +43,17 @@ class ReportGenerator:
             if res['calc_mode'] == 'external':
                 formula_right_base += f" + {res['additional_distance']:.0f}"
             
-            final_dist = res['final_distance']
-            if final_dist % 1 == 0:
-                result_str = f" = {int(final_dist)} m"
+            final_dist_dec = Decimal(str(res['final_distance']))
+            if final_dist_dec % 1 == 0:
+                result_str = f" = {int(final_dist_dec)} m"
             else:
-                result_str_1 = f" = {final_dist:.1f} m"
-                result_str_2 = f"≒ {int(round(final_dist))} m"
+                # 0.1m単位の中間表示は「切り捨て」
+                truncated_val = final_dist_dec.quantize(Decimal('0.1'), rounding=ROUND_DOWN)
+                result_str_1 = f" = {truncated_val:.1f} m"
+                # 整数値は「四捨五入」
+                rounded_val = final_dist_dec.quantize(Decimal('0'), rounding=ROUND_HALF_UP)
+                result_str_2 = f"≒ {int(rounded_val)} m"
+                
                 # アプリ表示とExcelで改行の扱いが違うため、データを分ける
                 report_blocks.append({
                     'type': 'complex_formula_line',
@@ -142,8 +147,8 @@ class ReportGenerator:
             # Decimalのまま合計を出し、高精度を維持する
             summary_decimal_result = sum(weighted_sum_values)
             
-            # 小数第1位と整数の表示用文字列を、明示的に四捨五入して生成する
-            line2_val = summary_decimal_result.quantize(Decimal('0.1'), rounding=ROUND_HALF_UP)
+            # 小数第1位は「切り捨て」、整数は「四捨五入」で生成する
+            line2_val = summary_decimal_result.quantize(Decimal('0.1'), rounding=ROUND_DOWN)
             line3_val = summary_decimal_result.quantize(Decimal('0'), rounding=ROUND_HALF_UP)
 
             report_blocks.append({

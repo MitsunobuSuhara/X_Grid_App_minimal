@@ -884,7 +884,9 @@ class MapRenderer:
     def _draw_final_result(self, calc_data):
         if calc_data.get('total_degree', 0) <= 0: return
         result_area_x, result_area_y = self.grid_offset_x, self.grid_offset_y - 70
-        dist_str = f"{calc_data['final_distance']:.1f} m"
+        # 0.1m単位の中間表示は「切り捨て」
+        truncated_dist = Decimal(str(calc_data['final_distance'])).quantize(Decimal('0.1'), rounding=ROUND_DOWN)
+        dist_str = f"{truncated_dist:.1f} m"
         font, color = self.fonts['result'], self.colors['normal']
         
         formula_prefix, formula_body_left = "平均集材距離 = ", "((⑨ + ⑦) ÷ ⑧ × K)"
