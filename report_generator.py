@@ -152,7 +152,7 @@ class ReportGenerator:
                 'prefix': "加重距離計算",
                 'line1': line1_formula,
                 'line2': f"{line2_val:.1f} m",
-                'line3': f"≒ {line3_val} m"
+                'line3': f"{line3_val} m"
             })
         report_blocks.append({'type': 'spacer', 'size': 20})
 
