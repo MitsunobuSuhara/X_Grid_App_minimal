@@ -1234,7 +1234,9 @@ class X_Grid(QMainWindow):
         temp_project.label_positions = self.project.label_positions
         temp_project.title_is_displayed = self.project.title_is_displayed
         temp_project.display_mode = display_mode
-        
+        # MODIFIED: 分割線の情報をPDF出力用プロジェクトにコピー
+        temp_project.split_lines = self.project.split_lines
+
         temp_project.default_landing_cell = self.project.default_landing_cell
         
         is_split_summary_page = self.project.is_split_mode and display_mode == 'summary'
