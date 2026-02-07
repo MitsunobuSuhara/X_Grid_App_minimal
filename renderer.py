@@ -1,5 +1,5 @@
 import math
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, ROUND_HALF_UP, ROUND_DOWN
 from PyQt6.QtCore import Qt, QRectF, QPointF, pyqtSignal
 from PyQt6.QtGui import (
     QColor, QPen, QBrush, QFont, QPolygonF, QPainterPath, QFontMetrics
@@ -882,7 +882,10 @@ class MapRenderer:
             else: self.calculation_items.append(self._add_aligned_text(symbol, self.fonts['total'], self.colors['normal'], QPointF(x + w/2, y + h/3))); self.calculation_items.append(self._add_aligned_text(value, self.fonts['total'], self.colors['normal'], QPointF(x + w/2, y + h*2/3)))
 
     def _draw_final_result(self, calc_data):
+        if not calc_data or not isinstance(calc_data, dict): return
         if calc_data.get('total_degree', 0) <= 0: return
+        # 加重平均（総括）の表示など、必要なキーがない場合はスキップする
+        if 'final_distance' not in calc_data: return
         result_area_x, result_area_y = self.grid_offset_x, self.grid_offset_y - 70
         # 0.1m単位の中間表示は「切り捨て」
         truncated_dist = Decimal(str(calc_data['final_distance'])).quantize(Decimal('0.1'), rounding=ROUND_DOWN)
@@ -890,12 +893,14 @@ class MapRenderer:
         font, color = self.fonts['result'], self.colors['normal']
         
         formula_prefix, formula_body_left = "平均集材距離 = ", "((⑨ + ⑦) ÷ ⑧ × K)"
-        if calc_data['calc_mode'] == 'external': 
+        calc_mode = calc_data.get('calc_mode', 'internal')
+        if calc_mode == 'external': 
             formula_body_left += " + L"
         
-        add_dist_str = f"{calc_data['additional_distance']:.0f}"
-        formula_body_right = f" = (({calc_data['total_product_v']}+{calc_data['total_product_h']}) ÷ {calc_data['total_degree']} × {self.project.k_value:.0f})"
-        if calc_data['calc_mode'] == 'external': 
+        add_dist = calc_data.get('additional_distance', 0.0)
+        add_dist_str = f"{add_dist:.0f}"
+        formula_body_right = f" = (({calc_data.get('total_product_v',0)}+{calc_data.get('total_product_h',0)}) ÷ {calc_data.get('total_degree',1)} × {self.project.k_value:.0f})"
+        if calc_mode == 'external': 
             formula_body_right += f" + {add_dist_str}"
         
         full_formula_str = f"{formula_prefix}{formula_body_left}{formula_body_right} = {dist_str}"

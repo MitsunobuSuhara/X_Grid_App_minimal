@@ -166,7 +166,8 @@ class ReportGenerator:
         if total_ha_rounded > 0:
             final_dist_to_display = line3_val
         else:
-            final_dist_to_display = int(round(summary_result['final_distance']))
+            final_dist = summary_result.get('final_distance', 0.0)
+            final_dist_to_display = int(round(final_dist))
             
         final_result_str = f"平均集材距離 = {final_dist_to_display} m"
         report_blocks.append({'type': 'final_result', 'text': final_result_str})
