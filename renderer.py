@@ -965,10 +965,20 @@ class MapRenderer:
             return
 
         items = []
-        x_start = 0 if for_pdf else 20
-        y_start = 0 if for_pdf else 20
-        
-        if not for_pdf:
+        if for_pdf:
+            # MODIFIED: ユーザー要望により、上と左に1cmの余白を追加
+            # 1セル=5mmなので、1cm = 2セル分
+            margin_in_cells = 2.0
+            margin_px = self.project.cell_size_on_screen * margin_in_cells
+            
+            x_start = margin_px
+            y_start = margin_px
+            
+            # (0,0)に透明な点を打つことで、getBoundingRectが(0,0)から始まるようにし、
+            # x_start, y_start の分だけ余白が生まれるようにする
+            self.scene.addRect(0, 0, 1, 1, QPen(Qt.PenStyle.NoPen))
+            
+        else:
             grid_width = self.project.grid_cols * self.project.cell_size_on_screen
             x_start = self.grid_offset_x + (grid_width - 780) / 2 
             y_start = self.grid_offset_y + 50
@@ -989,17 +999,20 @@ class MapRenderer:
             'section_header': metrics['section_header'].height() + 10,
             'default': metrics['data'].height() + 8
         }
+        
+        # MODIFIED: 左インデントを揃えるため、オフセット(20px等)を廃止または調整
+        base_indent = 0 # 追加のインデントなし
 
         for block in report_data:
             block_type = block.get('type')
             
             if block_type == 'title':
-                item = self._add_aligned_text(block['text'], self.fonts['title'], self.colors['dark'], QPointF(x_start, y_pos), Qt.AlignmentFlag.AlignLeft)
+                item = self._add_aligned_text(block['text'], self.fonts['title'], self.colors['dark'], QPointF(x_start + base_indent, y_pos), Qt.AlignmentFlag.AlignLeft)
                 items.append(item)
                 y_pos += line_heights['title']
             
             elif block_type == 'section_header':
-                item = self._add_aligned_text(block['text'], self.fonts['section_header'], self.colors['dark'], QPointF(x_start, y_pos), Qt.AlignmentFlag.AlignLeft)
+                item = self._add_aligned_text(block['text'], self.fonts['section_header'], self.colors['dark'], QPointF(x_start + base_indent, y_pos), Qt.AlignmentFlag.AlignLeft)
                 items.append(item)
                 y_pos += line_heights['section_header']
 
@@ -1008,17 +1021,17 @@ class MapRenderer:
 
             elif block_type in ['formula_line', 'calculation_line', 'note']:
                 font = self.fonts['note'] if block_type == 'note' else self.fonts['data']
-                offset = 40 if block_type == 'note' else 20
+                offset = 20 if block_type == 'note' else base_indent # noteだけ少し下げる
                 item = self._add_aligned_text(block['text'], font, self.colors['normal'], QPointF(x_start + offset, y_pos), Qt.AlignmentFlag.AlignLeft)
                 items.append(item)
                 y_pos += line_heights['default']
 
             elif block_type == 'complex_formula_line':
                 font = self.fonts['data']
-                item1 = self._add_aligned_text(block['formula_part1'], font, self.colors['normal'], QPointF(x_start + 20, y_pos), Qt.AlignmentFlag.AlignLeft)
+                item1 = self._add_aligned_text(block['formula_part1'], font, self.colors['normal'], QPointF(x_start + base_indent, y_pos), Qt.AlignmentFlag.AlignLeft)
                 items.append(item1)
                 
-                align_x = x_start + 20 + metrics['data'].horizontalAdvance(block['formula_part1'])
+                align_x = x_start + base_indent + metrics['data'].horizontalAdvance(block['formula_part1'])
                 item2 = self._add_aligned_text(block['result_part1'], font, self.colors['normal'], QPointF(align_x, y_pos), Qt.AlignmentFlag.AlignLeft)
                 items.append(item2)
                 item3 = self._add_aligned_text(block['result_part2'], font, self.colors['normal'], QPointF(align_x, y_pos + metrics['data'].height()), Qt.AlignmentFlag.AlignLeft)
@@ -1026,7 +1039,7 @@ class MapRenderer:
                 y_pos += metrics['data'].height() + line_heights['default']
             
             elif block_type == 'table':
-                table_x, table_y = x_start + 20, y_pos
+                table_x, table_y = x_start + base_indent, y_pos
                 col_widths = [120, 80, 100, 100, 160]
                 header_height = 45 
                 row_height = 35
@@ -1054,9 +1067,9 @@ class MapRenderer:
 
             elif block_type == 'final_calculation':
                 prefix_width = metrics['data'].horizontalAdvance(block['prefix'])
-                align_x = x_start + 20 + prefix_width + 20
+                align_x = x_start + base_indent + prefix_width + 20
 
-                items.append(self._add_aligned_text(block['prefix'], self.fonts['data'], self.colors['normal'], QPointF(x_start + 20, y_pos), Qt.AlignmentFlag.AlignLeft))
+                items.append(self._add_aligned_text(block['prefix'], self.fonts['data'], self.colors['normal'], QPointF(x_start + base_indent, y_pos), Qt.AlignmentFlag.AlignLeft))
                 items.append(self._add_aligned_text("=", self.fonts['data'], self.colors['normal'], QPointF(align_x, y_pos), Qt.AlignmentFlag.AlignLeft))
                 items.append(self._add_aligned_text(block['line1'], self.fonts['data'], self.colors['normal'], QPointF(align_x + metrics['data'].horizontalAdvance("= "), y_pos), Qt.AlignmentFlag.AlignLeft))
                 y_pos += metrics['data'].height() + 5
@@ -1067,21 +1080,14 @@ class MapRenderer:
                 
                 equal_width = metrics['data'].horizontalAdvance("=")
                 approx_width = metrics['data'].horizontalAdvance("≒")
-                offset = (equal_width - approx_width) / 2
-                items.append(self._add_aligned_text("≒", self.fonts['data'], self.colors['normal'], QPointF(align_x + offset, y_pos), Qt.AlignmentFlag.AlignLeft))
+                offset_eq = (equal_width - approx_width) / 2
+                items.append(self._add_aligned_text("≒", self.fonts['data'], self.colors['normal'], QPointF(align_x + offset_eq, y_pos), Qt.AlignmentFlag.AlignLeft))
                 items.append(self._add_aligned_text(block['line3'], self.fonts['data'], self.colors['normal'], QPointF(align_x + metrics['data'].horizontalAdvance("= "), y_pos), Qt.AlignmentFlag.AlignLeft))
                 y_pos += metrics['data'].height()
 
             elif block_type == 'final_result':
-                item = self._add_aligned_text(block['text'], self.fonts['result'], self.colors['dark'], QPointF(x_start, y_pos), Qt.AlignmentFlag.AlignLeft)
+                item = self._add_aligned_text(block['text'], self.fonts['result'], self.colors['dark'], QPointF(x_start + base_indent, y_pos), Qt.AlignmentFlag.AlignLeft)
                 items.append(item)
-                
-                # MODIFIED: Removed yellow background highlight
-                # bg_rect = item.boundingRect()
-                # bg_item = self.scene.addRect(bg_rect, QPen(Qt.PenStyle.NoPen), QBrush(QColor(255, 255, 204)))
-                # bg_item.setPos(item.pos())
-                # bg_item.setZValue(item.zValue() - 1)
-                # items.append(bg_item)
                 
         self.calculation_items.extend(items)
         self._setup_drawing_styles()

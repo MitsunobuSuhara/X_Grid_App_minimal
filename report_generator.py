@@ -127,7 +127,8 @@ class ReportGenerator:
 
             report_blocks.append({
                 'type': 'final_calculation',
-                'prefix': "平均集材距離",
+                # MODIFIED: ユーザー要望により、計算式の見出しを「平均集材距離」から「加重距離計算」に変更
+                'prefix': "加重距離計算",
                 'line1': line1_formula,
                 'line2': f"{final_dist_from_formula:.1f} m",
                 'line3': f"{int(round(final_dist_from_formula))} m"
