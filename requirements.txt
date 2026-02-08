@@ -1,0 +1,5 @@
+PyQt6
+fiona
+shapely
+PyPDF2
+openpyxl

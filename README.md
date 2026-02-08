@@ -23,16 +23,31 @@ X_Gridは、森林施業における「平均集材距離」をグリッド法�
 - OS: Windows 10 / 11 (推奨)
 - Python 3.9以上
 
-### セットアップ
-1. リポジトリをクローンまたはダウンロードします。
-2. 必要なライブラリをインストールします。
-   ```bash
-   pip install PyQt6 fiona shapely PyPDF2 openpyxl
-   ```
-3. `main.py` を実行します。
-   ```bash
-   python main.py
-   ```
+### インストールとセットアップ
+
+別のPC（会社のパソコン等）で同じ環境を構築する場合は、以下の手順に従ってください。
+
+### 1. Pythonのインストール
+Python 3.10以上（推奨: 3.13）をインストールしてください。
+[python.org](https://www.python.org/) からダウンロードできます。インストール時に「Add Python to PATH」にチェックを入れるのを忘れないでください。
+
+### 2. コードの取得
+GitHubのリポジトリをクローンするか、ZIP形式でダウンロードして解凍してください。
+
+### 3. ライブラリのインストール
+コマンドプロンプトやPowerShellを開き、プロジェクトのフォルダに移動して以下のコマンドを実行します。
+
+```bash
+pip install -r requirements.txt
+```
+
+> [!NOTE]
+> `fiona` のインストール時にエラーが発生する場合は、Windows用のバイナリ（wheel）が必要な場合があります。その場合は `pip install pipwin` -> `pipwin install fiona` を試すか、[Conda](https://docs.anaconda.com/anaconda/install/windows/) などのパッケージ管理ツールの利用を検討してください。
+
+## 使い方
+1. プロジェクトフォルダ内で `python main.py` を実行してアプリケーションを起動します。
+2. 「レイヤ追加」ボタンから .shp や .gpkg ファイルを読み込みます。
+3. ...
 
 ## 使い方（基本ワークフロー）
 
